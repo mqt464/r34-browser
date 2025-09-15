@@ -1,0 +1,373 @@
+:root{
+  --bg: #0b0b0e;
+  --bg-elev: #15151a;
+  --text: #e6e6ea;
+  --muted: #a0a0a8;
+  --border: #262630;
+  --accent: #7c3aed;
+  --danger: #ef4444;
+  --control-h: 30px;
+  --header-btn-w: 110px;
+}
+
+@media (prefers-color-scheme: light){
+  :root{
+    --bg: #fbfbfd;
+    --bg-elev: #ffffff;
+    --text: #17171a;
+    --muted: #56565e;
+    --border: #e7e7ef;
+  }
+}
+
+/* Explicit theme overrides */
+html[data-theme="dark"]{
+  --bg: #0b0b0e;
+  --bg-elev: #15151a;
+  --text: #e6e6ea;
+  --muted: #a0a0a8;
+  --border: #262630;
+}
+html[data-theme="light"]{
+  --bg: #fbfbfd;
+  --bg-elev: #ffffff;
+  --text: #17171a;
+  --muted: #56565e;
+  --border: #e7e7ef;
+}
+
+html,body{height:100%;}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* Ensure [hidden] works over component display rules */
+[hidden]{ display: none !important; }
+
+/* Freeze background scroll when overlays are open */
+html.no-scroll, body.no-scroll{ overflow: hidden; }
+
+.app{min-height:100%; padding-bottom:64px}
+
+.topbar{
+  position: sticky; top: 0; z-index: 80;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  /* Respect iOS safe areas so the settings button is tappable */
+  padding: 8px 12px 6px;
+  padding-top: calc(8px + constant(safe-area-inset-top));
+  padding-top: calc(8px + env(safe-area-inset-top));
+  padding-left: calc(12px + env(safe-area-inset-left));
+  padding-right: calc(12px + env(safe-area-inset-right));
+}
+.brand{display:flex; align-items:center; gap:8px; font-weight:700; margin: 8px 2px 12px}
+.brand .logo{color: var(--accent)}
+.brand .sep{opacity:.6}
+.brand #btn-settings{
+  margin-left:auto; padding:8px 12px; border-radius:10px;
+  border:1px solid var(--border); background: var(--bg-elev);
+  color: var(--text); font-weight:600; font-size:.9rem;
+  min-height: 40px; /* larger hit target on mobile */
+  width: var(--header-btn-w); display:inline-flex; align-items:center; justify-content:center;
+}
+.brand #btn-settings:hover{background: color-mix(in oklab, var(--accent) 18%, var(--bg-elev))}
+
+.searchbox{display:flex; align-items:center; gap:8px; position:relative}
+.searchbox input{
+  flex:1; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
+  background: var(--bg-elev); color: var(--text);
+}
+.searchbox.small input{padding:8px 10px;}
+.searchbox .btn{padding:8px 10px; border-radius:10px; width: var(--header-btn-w); display:inline-flex; align-items:center; justify-content:center}
+.autocomplete{
+  position:absolute; top:100%; left:0; right:0; background: var(--bg-elev);
+  border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden;
+  max-height: 280px; overflow-y:auto; z-index: 90;
+}
+.autocomplete .item{padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--border)}
+.autocomplete .item:last-child{border-bottom:none}
+.autocomplete .item:hover{background: color-mix(in oklab, var(--accent) 12%, var(--bg-elev))}
+
+.chips{display:flex; gap:8px; flex-wrap:wrap; padding:8px 2px}
+.chips.small{gap:6px}
+.chips.small .chip{padding:4px 8px; font-size:.85rem}
+.tags-body{padding: 10px 12px}
+.chip{display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 8%, var(--bg-elev)), var(--bg-elev)); border:1px solid color-mix(in oklab, var(--accent) 30%, var(--border)); user-select:none}
+.chip .x{cursor:pointer; opacity:.7; padding:2px 4px; border-radius:6px}
+.chip .x:hover{opacity:1}
+.chip .toggle{cursor:pointer; padding:0 6px; color:var(--accent); border-radius:6px; background: color-mix(in oklab, var(--accent) 16%, transparent)}
+.chip.excluded{opacity:.95; outline:2px dashed color-mix(in oklab, var(--accent) 50%, var(--border))}
+.chip .t{font-weight:600}
+.chip.tag-general{background: linear-gradient(180deg, color-mix(in oklab, #9ca3af 12%, var(--bg-elev)), var(--bg-elev)); border-color: color-mix(in oklab, #9ca3af 35%, var(--border))}
+.chip.tag-meta{background: linear-gradient(180deg, color-mix(in oklab, #a855f7 12%, var(--bg-elev)), var(--bg-elev)); border-color: #a855f7}
+.chip.tag-character{background: linear-gradient(180deg, color-mix(in oklab, #22c55e 12%, var(--bg-elev)), var(--bg-elev)); border-color: #22c55e}
+.chip.tag-copyright{background: linear-gradient(180deg, color-mix(in oklab, #f59e0b 12%, var(--bg-elev)), var(--bg-elev)); border-color: #f59e0b}
+.chip.tag-artist{background: linear-gradient(180deg, color-mix(in oklab, #3b82f6 12%, var(--bg-elev)), var(--bg-elev)); border-color: #3b82f6}
+
+.scroll-progress{height:3px; background: transparent; margin-top:6px}
+.scroll-progress>div{height:100%; width:0; background: var(--accent); transition: width .12s linear}
+
+.tabbar{
+  position: fixed; bottom:0; left:0; right:0; z-index:25; display:flex;
+  border-top:1px solid var(--border); background: var(--bg);
+  padding-bottom: calc(4px + env(safe-area-inset-bottom));
+}
+.tabbar .tab{flex:1; padding:12px 8px; background:none; color:var(--text); border:none; font-weight:600}
+.tabbar .tab.active{color:var(--accent)}
+
+.main{max-width: 960px; margin: 0 auto; padding: 8px 8px calc(64px + env(safe-area-inset-bottom))}
+
+.feed{display:block}
+.feed.single .post-card{break-inside: avoid}
+.feed.masonry{column-gap: 12px}
+.feed.masonry[data-columns="2"]{column-count:2}
+.feed.masonry[data-columns="3"]{column-count:3}
+.feed.masonry[data-columns="4"]{column-count:4}
+
+/* Back to top (FAB) */
+.to-top{
+  position: fixed;
+  right: calc(14px + env(safe-area-inset-right));
+  bottom: calc(76px + env(safe-area-inset-bottom)); /* above tabbar */
+  z-index: 60;
+  width: 48px; height: 48px; border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
+  color: white; font-weight: 800;
+  background: linear-gradient(180deg,
+              color-mix(in oklab, var(--accent) 28%, #0000),
+              color-mix(in oklab, var(--accent) 12%, var(--bg-elev)));
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--accent) 24%, transparent),
+              0 2px 6px #00000040;
+  display: inline-flex; align-items: center; justify-content: center;
+  position: fixed; overflow: hidden;
+  font-size: 0; /* hide any text inside; we draw icon via ::before */
+  transform: translateY(14px) scale(.92);
+  opacity: 0; pointer-events: none;
+  transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .18s ease, box-shadow .2s ease;
+  backdrop-filter: saturate(160%) blur(6px);
+}
+.to-top.visible{ opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.to-top:hover{ box-shadow: 0 14px 28px color-mix(in oklab, var(--accent) 32%, transparent), 0 4px 10px #00000050; }
+.to-top:active{ transform: translateY(0) scale(.96); }
+.to-top:focus-visible{ outline: 0; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 55%, transparent), 0 8px 18px #00000055; }
+
+/* Subtle ripple on press */
+.to-top::after{
+  content: ""; position:absolute; inset:0; border-radius:inherit;
+  background: radial-gradient( circle at center,
+              color-mix(in oklab, var(--accent) 28%, #fff0) 0%,
+              #0000 60%);
+  opacity: 0; transform: scale(.4);
+  transition: opacity .18s ease, transform .24s ease;
+}
+.to-top:active::after{ opacity: .35; transform: scale(1); }
+
+/* Draw the arrow icon and give it a tiny bob */
+.to-top::before{
+  content: "\2191"; /* up arrow */
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 22px; line-height: 1; opacity: .98;
+  transition: transform .22s cubic-bezier(.2,.8,.2,1), opacity .22s ease;
+}
+.to-top:hover::before{ transform: translate(-50%, -52%); }
+.to-top:active::before{ transform: translate(-50%, -48%) scale(.96); }
+.to-top.visible::before{ animation: btn-pop .28s cubic-bezier(.2,.8,.2,1); }
+
+@keyframes btn-pop{
+  0%{ transform: translate(-50%, -60%) scale(.8); opacity: 0; }
+  60%{ transform: translate(-50%, -52%) scale(1.03); opacity: 1; }
+  100%{ transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .to-top{ transition: opacity .15s ease; transform: none; }
+  .to-top.visible{ transform: none; }
+}
+
+.post-card{display:block; margin: 10px 0; background: var(--bg-elev); border:1px solid var(--border); border-radius:14px; overflow:hidden}
+.post-media{position:relative; background: #0a0a0c}
+.post-media .ratio{width:100%; display:block}
+.post-media img,.post-media video{width:100%; height:auto; display:block}
+.post-media .like-heart{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; font-size:clamp(56px, 8vw, 100px); color:var(--accent); transform: scale(.6); filter: drop-shadow(0 8px 24px color-mix(in oklab, var(--accent) 45%, transparent))}
+.post-media.show-like .like-heart.added{animation: heart-pop .8s cubic-bezier(.2,.9,.2,1.1) forwards}
+.post-media.show-like .like-heart.removed{animation: heart-fade .5s ease-out forwards; color: var(--muted); filter:none}
+
+@keyframes heart-pop{
+  0%{opacity:0; transform: scale(.6)}
+  25%{opacity:.98; transform: scale(1.25)}
+  55%{transform: scale(.95)}
+  100%{opacity:0; transform: scale(1)}
+}
+@keyframes heart-fade{
+  0%{opacity:.9; transform: scale(1)}
+  100%{opacity:0; transform: scale(.6)}
+}
+
+/* Ring ripple */
+.post-media .like-ring{position:absolute; top:50%; left:50%; width:160px; height:160px; margin:-80px 0 0 -80px; border:3px solid color-mix(in oklab, var(--accent) 45%, transparent); border-radius:9999px; opacity:.6; transform: scale(.4); animation: ring .8s ease-out forwards; pointer-events:none}
+@keyframes ring{ to { transform: scale(1.15); opacity:0 } }
+
+/* Confetti burst */
+.post-media .like-burst{position:absolute; top:50%; left:50%; width:0; height:0; pointer-events:none}
+.post-media .like-burst i{position:absolute; width:8px; height:8px; border-radius:2px; opacity:0; transform: translate(0,0) scale(.6); animation: confetti .7s ease-out forwards}
+.post-media .like-burst i:nth-child(1){ --dx: 0px; --dy: -68px; background: var(--accent) }
+.post-media .like-burst i:nth-child(2){ --dx: 48px; --dy: -48px; background: color-mix(in oklab, var(--accent) 75%, #22c55e) }
+.post-media .like-burst i:nth-child(3){ --dx: 68px; --dy: 0px; background: color-mix(in oklab, var(--accent) 70%, #f59e0b) }
+.post-media .like-burst i:nth-child(4){ --dx: 48px; --dy: 48px; background: color-mix(in oklab, var(--accent) 70%, #ef4444) }
+.post-media .like-burst i:nth-child(5){ --dx: 0px; --dy: 68px; background: color-mix(in oklab, var(--accent) 70%, #06b6d4) }
+.post-media .like-burst i:nth-child(6){ --dx: -48px; --dy: 48px; background: color-mix(in oklab, var(--accent) 70%, #eab308) }
+.post-media .like-burst i:nth-child(7){ --dx: -68px; --dy: 0px; background: color-mix(in oklab, var(--accent) 70%, #10b981) }
+.post-media .like-burst i:nth-child(8){ --dx: -48px; --dy: -48px; background: color-mix(in oklab, var(--accent) 70%, #3b82f6) }
+@keyframes confetti{
+  0%{opacity:0; transform: translate(0,0) scale(.6) rotate(0deg)}
+  25%{opacity:1}
+  100%{opacity:0; transform: translate(var(--dx), var(--dy)) scale(1) rotate(180deg)}
+}
+.post-meta{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-top:1px solid var(--border)}
+.post-meta .left{display:flex; gap:8px; align-items:center}
+.post-meta .right{display:flex; gap:8px; align-items:center}
+.icon-btn{
+  background:none; border:none; color:var(--text);
+  padding:6px 8px; border-radius:8px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  font: inherit; font-size: .95rem; line-height: 1.2;
+  text-decoration:none;
+}
+a.icon-btn{ text-decoration:none }
+a.icon-btn:link, a.icon-btn:visited{ color: var(--text); text-decoration:none }
+a.icon-btn:hover, a.icon-btn:active, a.icon-btn:focus{ text-decoration:none }
+.icon-btn:hover{background: color-mix(in oklab, var(--accent) 14%, var(--bg-elev))}
+.icon-btn.fav.pulse{animation: btn-pulse .45s ease-out}
+@keyframes btn-pulse{
+  0%{transform: scale(1)}
+  35%{transform: scale(1.18)}
+  100%{transform: scale(1)}
+}
+.fav.active{color: var(--accent)}
+
+.skeleton{position:relative; overflow:hidden; background: #1a1a20; min-height: 180px}
+.skeleton::after{content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite}
+@keyframes shimmer{0%{transform: translateX(-100%)}100%{transform: translateX(100%)}}
+
+.feed-end{ text-align:center; color: var(--muted); padding: 16px 8px}
+
+
+
+.overlay{position: fixed; inset:0; background: #0008; display:flex; align-items:flex-end; justify-content:center; z-index: 1000}
+.overlay.center{align-items:center; justify-content:center}
+.sheet{background: var(--bg-elev); border-top-left-radius:16px; border-top-right-radius:16px; width: min(720px, 100%); border:1px solid var(--border)}
+.overlay.center .sheet{border-radius:16px; max-width: 820px; width: 92%; max-height: 88vh; display:flex; flex-direction:column; box-shadow: 0 20px 60px #000a}
+.overlay.center .grab{display:none}
+.sheet-header{display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 12px 16px; border-bottom:1px solid var(--border)}
+.sheet-body{padding: 12px 16px; overflow:auto}
+.btn.icon{padding:6px 10px}
+.overlay .sheet{max-height:85vh; overflow-y:auto; animation: slideup .18s ease-out; will-change: transform}
+@keyframes slideup{from{transform: translateY(12px); opacity:.9} to{transform: translateY(0); opacity:1}}
+.grab{width: 40px; height: 4px; border-radius: 999px; background: var(--border); margin: 8px auto}
+.sheet-title{font-weight:800; padding: 8px 16px; font-size:1.1rem}
+.sheet-actions{display:flex; flex-wrap:wrap; gap:8px; padding: 8px 16px 16px}
+.btn{
+  background: var(--bg-elev); color: var(--text);
+  border:1px solid var(--border); border-radius:10px;
+  padding:8px 10px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  font: inherit; font-size:.95rem; line-height:1.2;
+}
+.btn.danger{border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); color: var(--danger)}
+.btn.action{background: color-mix(in oklab, var(--accent) 16%, var(--bg-elev)); border-color: var(--accent)}
+
+.note{color: var(--muted); font-size:.9em}
+
+/* Code-like small boxes for excluded tags */
+.codebox{background:#0a0a0c; border:1px solid var(--border); color:var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  padding:6px 8px; border-radius:8px; font-size:.85rem; display:block}
+.codebox .code-tag{display:inline-block; margin:2px 6px 2px 0}
+.codebox .code-tag .x{margin-left:6px; cursor:pointer; opacity:.6}
+.codebox .code-tag .x:hover{opacity:1}
+
+.settings{display:grid; gap:20px}
+.settings-title{font-size:1.25rem; margin: 4px 0 0 4px; opacity:.9}
+.card{background: var(--bg-elev); border:1px solid var(--border); border-radius:14px; padding: 16px}
+.card h3{margin:6px 0 12px; font-size:1rem}
+.card.emphasis{border-color: color-mix(in oklab, var(--accent) 35%, var(--border)); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 20%, transparent) inset}
+.row{display:flex; gap:8px; flex-wrap:wrap}
+.card .row + .row{ margin-top: 8px }
+.card #data-msg{ margin-top: 10px; min-height: 1em; color: var(--muted) }
+.fields{display:grid; gap:10px}
+.fields>div{padding:10px 12px; border-radius:12px; border:1px solid var(--border); background: var(--bg-elev)}
+.fields>div .note{margin-top:4px}
+.fields>div .codebox{margin-top:6px}
+.fields>div .row{margin-top:8px}
+.fields input[type="text"]{height: var(--control-h); border:1px solid var(--border); border-radius:10px; padding:0 10px; background: var(--bg); color: var(--text)}
+
+/* Custom toggle switch */
+.switch{display:flex; align-items:center; gap:10px}
+.switch input{position:absolute; opacity:0; width:0; height:0}
+.switch .switch-ui{width:44px; height:26px; background: var(--border); border:1px solid var(--border); border-radius:999px; position:relative; transition: background .2s, border-color .2s}
+.switch .switch-ui::after{content:""; position:absolute; top:50%; left:2px; width:20px; height:20px; transform: translateY(-50%); background: var(--bg-elev); border-radius:50%; transition: left .2s}
+.switch input:checked + .switch-ui{background: color-mix(in oklab, var(--accent) 50%, var(--bg-elev)); border-color: var(--accent)}
+.switch input:checked + .switch-ui::after{left: calc(100% - 22px)}
+.switch .label{font-weight:600}
+.stack{display:flex; flex-direction:column; gap:6px}
+.analytics{color:var(--muted); font-size:.95em; margin-top:10px}
+.analytics-loading{display:flex; align-items:center; gap:8px; color:var(--muted); padding:4px 0}
+.spinner{width:16px; height:16px; border:2px solid color-mix(in oklab, var(--accent) 30%, transparent); border-top-color: var(--accent); border-radius:50%; animation: spin .8s linear infinite}
+@keyframes spin{ to { transform: rotate(360deg) } }
+.analytics .stats{display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:12px; margin-bottom:12px}
+.analytics .stat{background: var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px}
+.analytics .stat .value{font-weight:800; font-size:1.2rem}
+.analytics .stat .label{font-size:.85rem; opacity:.8}
+
+/* Analytics charts */
+.analytics .grid{display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));}
+.chart{background: var(--bg); border:1px solid var(--border); border-radius:12px; padding:12px}
+.chart h4{margin:0 0 8px 0; font-size:.95rem; color: var(--text)}
+
+/* Donut */
+.donut{display:grid; grid-template-columns: 120px 1fr; align-items:center; gap:8px}
+.donut svg{width:120px; height:120px}
+.legend{display:grid; gap:6px}
+.legend .item{display:flex; align-items:center; gap:8px; color:var(--text)}
+.legend .swatch{width:10px; height:10px; border-radius:3px; display:inline-block}
+
+/* Bar list */
+.barlist .row{display:flex; align-items:center; gap:8px; margin:4px 0}
+.barlist .label{flex:0 0 110px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--text)}
+.barlist .bar{flex:1; height:8px; background: var(--bg-elev); border:1px solid var(--border); border-radius:999px; overflow:hidden}
+.barlist .fill{height:100%; background: color-mix(in oklab, var(--accent) 55%, var(--bg));}
+.barlist .val{flex:0 0 auto; min-width:2ch; text-align:right}
+
+/* Sparkline */
+.spark svg{width:100%; height:60px}
+.spark .axis{stroke: #ffffff18; stroke-width:1}
+.spark .line{stroke: var(--accent); stroke-width:2; fill: none}
+
+.group{border:1px dashed var(--border); border-radius:12px; padding:8px; margin: 10px 0}
+.group-head{display:flex; gap:8px; align-items:center}
+.group-toggle{
+  background:none; border:1px solid var(--border); border-radius:10px;
+  color:var(--text); cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  width: var(--control-h); height: var(--control-h);
+}
+.group.collapsed .group-toggle{transform: rotate(0deg)}
+.group:not(.collapsed) .group-toggle{transform: rotate(90deg)}
+.group-title{flex:1; min-width:0}
+.group-name-row{display:flex; align-items:center; gap:8px}
+.group-name{flex:1; padding:0 10px; border-radius:10px; border:1px solid var(--border); background: var(--bg); height: var(--control-h)}
+.group-del{height: var(--control-h); display:inline-flex; align-items:center}
+.group-summary{margin-top:4px; font-size:.85rem; color: var(--muted)}
+.group-tags{margin-top:8px}
+.group.collapsed .group-tags{display:none}
+
+/* Desktop tweaks */
+@media (min-width: 900px){
+  .tabbar{position: sticky; bottom: auto; top: 0; justify-content: flex-start; gap:8px; border-bottom:1px solid var(--border); border-top:none}
+  .app{padding-bottom:0}
+}

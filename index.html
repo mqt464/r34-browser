@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>R34 Browser</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- PWA/Standalone full-screen for iOS/Android home screen installs -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="R34 Browser" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#0b0b0e" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">R34</span>
+          <span class="sep">•</span>
+          <span class="title">Browser</span>
+          <span style="flex:1"></span>
+          <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Open settings">Settings</button>
+        </div>
+
+        <div class="searchbox" role="search">
+          <input id="search-input" type="text" placeholder="Search tags… (press Enter to add, then press Search)" autocomplete="off" />
+          <button id="search-go" class="btn" title="Search">Search</button>
+          <div id="autocomplete" class="autocomplete" hidden></div>
+        </div>
+
+        <div id="tag-chips" class="chips" aria-live="polite"></div>
+
+        <div id="scroll-progress" class="scroll-progress"><div></div></div>
+      </header>
+
+      <nav class="tabbar">
+        <button class="tab active" data-tab="home" title="Home">Home</button>
+        <button class="tab" data-tab="search" title="Search">Search</button>
+        <button class="tab" data-tab="favorites" title="Favorites">Favorites</button>
+      </nav>
+
+      <main id="main" class="main">
+        <section id="feed" class="feed single" data-columns="1"></section>
+        <div id="feed-end" class="feed-end" hidden>End reached — no more results.</div>
+        <div id="sentinel" class="sentinel" aria-hidden="true"></div>
+      </main>
+
+      <button id="to-top" class="to-top" hidden title="Back to top">▲</button>
+
+      <!-- Context menu overlay removed per request -->
+
+      <!-- Tags detail overlay -->
+      <div id="tags-overlay" class="overlay" hidden>
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="tags-title">
+          <div class="grab"></div>
+          <div id="tags-title" class="sheet-title">Tags</div>
+          <div id="tags-body" class="tags-body"></div>
+          <div class="sheet-actions">
+            <button id="tags-close" class="btn">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings overlay -->
+      <div id="settings-overlay" class="overlay center" hidden>
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <div class="grab"></div>
+          <div class="sheet-header">
+            <div id="settings-title" class="sheet-title">Settings</div>
+            <button id="settings-close" class="btn icon" aria-label="Close settings">✕</button>
+          </div>
+          <div id="settings-container" class="sheet-body"></div>
+        </div>
+      </div>
+
+      <!-- Settings panel (renders into main area when tab active) -->
+      <template id="tpl-settings">
+        <section class="settings">
+          <h2 class="settings-title">Settings</h2>
+
+          <div class="card">
+            <h3>Content Filters</h3>
+            <div class="fields">
+              <div>
+                <label class="switch">
+                  <input id="f-ai" type="checkbox" />
+                  <span class="switch-ui" aria-hidden="true"></span>
+                  <span class="label">Exclude AI-generated content</span>
+                </label>
+                <div class="note">Blocks common AI tags.</div>
+                <div id="f-ai-tags" class="codebox" aria-hidden="true"></div>
+              </div>
+              <div>
+                <label class="switch">
+                  <input id="f-scat" type="checkbox" />
+                  <span class="switch-ui" aria-hidden="true"></span>
+                  <span class="label">Exclude scat</span>
+                </label>
+                <div class="note">Blocks feces-related tags.</div>
+                <div id="f-scat-tags" class="codebox" aria-hidden="true"></div>
+              </div>
+              <div>
+                <label class="switch">
+                  <input id="f-shota" type="checkbox" />
+                  <span class="switch-ui" aria-hidden="true"></span>
+                  <span class="label">Exclude shota/loli</span>
+                </label>
+                <div class="note">Blocks shota/loli related tags.</div>
+                <div id="f-shota-tags" class="codebox" aria-hidden="true"></div>
+              </div>
+              <div>
+                <h4 style="margin:8px 0 6px 0">Custom exclusions</h4>
+                <div class="note">Add your own tags to exclude. These are applied to all searches and the home feed.</div>
+                <div class="row">
+                  <input id="f-custom-input" type="text" placeholder="Add a tag to exclude (e.g. futanari)" style="flex:1" />
+                  <button id="f-custom-add" class="btn">Add</button>
+                </div>
+                <div id="f-custom-list" class="codebox" aria-live="polite"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Appearance</h3>
+            <div class="row fields">
+              <label class="stack" style="flex:1">Columns
+                <input id="opt-columns" type="range" min="1" max="4" step="1" />
+                <span id="opt-columns-val"></span>
+              </label>
+              <label class="stack" style="flex:1">Theme
+                <select id="opt-theme">
+                  <option value="system">System</option>
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </label>
+              <label class="stack" style="flex:1">Accent
+                <input id="opt-accent" type="color" />
+              </label>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Subscribed Tag Groups</h3>
+            <p class="note">Home aggregates posts from each group. Add tags to include; prefix a tag with “-” to exclude. Use the arrow to expand/collapse a group. Click a tag to toggle include/exclude; long‑press a tag to remove.</p>
+            <div id="groups"></div>
+            <button id="group-add" class="btn">Add group</button>
+          </div>
+
+          <div class="card">
+            <h3>Analytics</h3>
+            <div id="analytics" class="analytics"></div>
+          </div>
+
+          <div class="card">
+            <h3>Data</h3>
+            <p class="note">Export saves your app data (settings, groups, favorites, filters). Import replaces your current data with a JSON backup. Reset clears everything.</p>
+            <div class="row">
+              <button id="data-copy" class="btn">Copy</button>
+              <button id="data-export" class="btn">Export</button>
+              <label class="btn">
+                Import <input id="data-import" type="file" accept="application/json" hidden />
+              </label>
+              <button id="data-reset" class="btn danger">Reset</button>
+            </div>
+            <div id="data-msg" class="note" aria-live="polite"></div>
+          </div>
+
+          <div class="card">
+            <h3>API Access</h3>
+            <p class="note">Enter your Rule34 <b>User ID</b> and <b>API key</b>. Find/generate them at Account → Options: https://rule34.xxx/index.php?page=account&amp;s=options</p>
+            <div class="row fields">
+              <label class="stack" style="flex:1">User ID
+                <input id="opt-user-id" type="text" inputmode="numeric" placeholder="Your Rule34 user id" />
+              </label>
+              <label class="stack" style="flex:2">API Key
+                <input id="opt-api-key" type="text" placeholder="Your Rule34 API key" />
+              </label>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="api-test" class="btn">Test API</button>
+              <div id="api-msg" class="note" style="align-self:center" aria-live="polite"></div>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-group">
+        <div class="group collapsed">
+          <div class="group-head">
+            <div class="group-title">
+              <div class="group-name-row">
+                <button class="group-toggle" aria-expanded="false" title="Expand">▸</button>
+                <input class="group-name" placeholder="Group name" />
+                <button class="btn group-del" title="Delete group">Delete</button>
+              </div>
+              <div class="group-summary note"></div>
+            </div>
+          </div>
+          <div class="group-tags">
+            <div class="searchbox small">
+              <input class="group-search" type="text" placeholder="Add tags to group…" />
+              <button class="btn group-add-tag">Add</button>
+              <div class="autocomplete" hidden></div>
+            </div>
+            <div class="chips"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+  </html>
