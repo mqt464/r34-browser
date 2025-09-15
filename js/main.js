@@ -1,6 +1,6 @@
 import { $, $$, enableSheetDrag } from './core/utils.js';
 import { initSearch, getSearchState } from './ui/search.js';
-import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay } from './ui/feed.js';
+import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js';
 import { initSettings, showSettings, hideSettings } from './ui/settings.js';
 
 const els = {
@@ -31,9 +31,15 @@ function boot(){
   initSettings(els);
   initSearch(els, {
     onPerformSearch: () => {
-      switchTab('search');
-      resetSearchPagination();
-      loadNext();
+      // If already on Search tab, clear existing results before loading new ones
+      if (getActiveTab && getActiveTab() === 'search') {
+        clearFeed();
+        resetSearchPagination();
+        loadNext();
+      } else {
+        // Switching tabs handles clearing and loading
+        switchTab('search');
+      }
     },
   });
 
@@ -56,4 +62,3 @@ function boot(){
 }
 
 boot();
-
