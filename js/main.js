@@ -1,7 +1,7 @@
-import { $, $$, enableSheetDrag } from './core/utils.js';
-import { initSearch, getSearchState } from './ui/search.js';
-import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js';
-import { initSettings, showSettings, hideSettings } from './ui/settings.js';
+import { $, $$, enableSheetDrag } from './core/utils.js?v=20250916';
+import { initSearch, getSearchState } from './ui/search.js?v=20250916';
+import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js?v=20250916';
+import { initSettings, showSettings, hideSettings } from './ui/settings.js?v=20250916';
 
 const els = {
   feed: $('#feed'),

@@ -8,6 +8,8 @@
   --danger: #ef4444;
   --control-h: 30px;
   --header-btn-w: 110px;
+  /* Square size for the header settings button (touch friendly) */
+  --header-btn-size: 44px;
 }
 
 @media (prefers-color-scheme: light){
@@ -68,12 +70,14 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .brand .logo{color: var(--accent)}
 .brand .sep{opacity:.6}
 .brand #btn-settings{
-  margin-left:auto; padding:8px 12px; border-radius:10px;
+  margin-left:auto; padding:0; border-radius:10px;
   border:1px solid var(--border); background: var(--bg-elev);
   color: var(--text); font-weight:600; font-size:.9rem;
-  min-height: 40px; /* larger hit target on mobile */
-  width: var(--header-btn-w); display:inline-flex; align-items:center; justify-content:center;
+  height: var(--header-btn-size);
+  width: var(--header-btn-size);
+  display:inline-flex; align-items:center; justify-content:center;
 }
+.brand #btn-settings svg{ width:22px; height:22px; }
 .brand #btn-settings:hover{background: color-mix(in oklab, var(--accent) 18%, var(--bg-elev))}
 
 .searchbox{display:flex; align-items:center; gap:8px; position:relative}
@@ -88,9 +92,25 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
   border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden;
   max-height: 280px; overflow-y:auto; z-index: 90;
 }
-.autocomplete .item{padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--border)}
+.autocomplete .item{padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:10px}
 .autocomplete .item:last-child{border-bottom:none}
 .autocomplete .item:hover{background: color-mix(in oklab, var(--accent) 12%, var(--bg-elev))}
+.autocomplete .left{display:flex; align-items:center; gap:8px; min-width:0}
+.autocomplete .left .tag{font-weight:700; color: var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width: 60vw}
+.autocomplete .type{font-size:.75rem; padding:2px 6px; border-radius:999px; border:1px solid var(--border); color: var(--muted); background: var(--bg)}
+.autocomplete .type.general{border-color: color-mix(in oklab, #9ca3af 35%, var(--border));}
+.autocomplete .type.meta{border-color: #a855f7; color:#a855f7; background: color-mix(in oklab, #a855f7 12%, var(--bg))}
+.autocomplete .type.character{border-color: #22c55e; color:#22c55e; background: color-mix(in oklab, #22c55e 12%, var(--bg))}
+.autocomplete .type.copyright{border-color: #f59e0b; color:#f59e0b; background: color-mix(in oklab, #f59e0b 12%, var(--bg))}
+.autocomplete .type.artist{border-color: #3b82f6; color:#3b82f6; background: color-mix(in oklab, #3b82f6 12%, var(--bg))}
+.autocomplete .right{display:flex; align-items:center; gap:6px}
+.autocomplete .count{font-variant-numeric: tabular-nums; font-size:.85rem; color: var(--muted); background: var(--bg); border:1px solid var(--border); border-radius:8px; padding:2px 6px}
+
+/* Autocomplete skeletons */
+.autocomplete .skel{ position:relative; color:transparent; background:#1a1a20; overflow:hidden; border: none !important; padding: 0 !important; }
+.autocomplete .skel::after{ content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite }
+.autocomplete .type.skel{ width:56px; height:18px; border-radius:999px; display:inline-block }
+.autocomplete .count.skel{ width:60px; height:18px; border-radius:8px; display:inline-block }
 
 .chips{display:flex; gap:8px; flex-wrap:wrap; padding:8px 2px}
 .chips.small{gap:6px}
@@ -100,7 +120,14 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .chip .x{cursor:pointer; opacity:.7; padding:2px 4px; border-radius:6px}
 .chip .x:hover{opacity:1}
 .chip .toggle{cursor:pointer; padding:0 6px; color:var(--accent); border-radius:6px; background: color-mix(in oklab, var(--accent) 16%, transparent)}
-.chip.excluded{opacity:.95; outline:2px dashed color-mix(in oklab, var(--accent) 50%, var(--border))}
+.chip.excluded{
+  opacity:.95;
+  /* Hide the normal border and replace with dotted outline */
+  border-color: transparent;
+  outline: 2px dotted color-mix(in oklab, var(--accent) 50%, var(--border));
+  outline-offset: -2px;
+}
+.chip.excluded .t{text-decoration: line-through}
 .chip .t{font-weight:600}
 .chip.tag-general{background: linear-gradient(180deg, color-mix(in oklab, #9ca3af 12%, var(--bg-elev)), var(--bg-elev)); border-color: color-mix(in oklab, #9ca3af 35%, var(--border))}
 .chip.tag-meta{background: linear-gradient(180deg, color-mix(in oklab, #a855f7 12%, var(--bg-elev)), var(--bg-elev)); border-color: #a855f7}
@@ -118,6 +145,29 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 }
 .tabbar .tab{flex:1; padding:12px 8px; background:none; color:var(--text); border:none; font-weight:600}
 .tabbar .tab.active{color:var(--accent)}
+
+/* Animated tab underline */
+.tabbar{
+  --tab-underline-x: 0px;
+  --tab-underline-w: 0px;
+}
+.tabbar::after{
+  content: "";
+  position:absolute; left:0; bottom:0;
+  height:3px; width: var(--tab-underline-w);
+  transform: translateX(var(--tab-underline-x));
+  background: var(--accent);
+  border-radius: 3px;
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), width .25s cubic-bezier(.2,.8,.2,1);
+}
+
+/* Chip hover/active polish */
+.chip{ transition: transform .12s cubic-bezier(.2,.8,.2,1), box-shadow .12s ease, outline-color .2s ease; will-change: transform; }
+.chip:active{ transform: scale(.98); }
+.chip:not(.excluded):hover{ box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent) inset; }
+
+/* Normalize control radii */
+.searchbox input{ border-radius:10px; }
 
 .main{max-width: 960px; margin: 0 auto; padding: 8px 8px calc(64px + env(safe-area-inset-bottom))}
 
@@ -261,8 +311,12 @@ a.icon-btn:hover, a.icon-btn:active, a.icon-btn:focus{ text-decoration:none }
 .overlay{position: fixed; inset:0; background: #0008; display:flex; align-items:flex-end; justify-content:center; z-index: 1000}
 .overlay.center{align-items:center; justify-content:center}
 .sheet{background: var(--bg-elev); border-top-left-radius:16px; border-top-right-radius:16px; width: min(720px, 100%); border:1px solid var(--border)}
+.tags-loading{display:flex; flex-wrap:wrap; gap:6px; padding: 12px}
+.tags-loading .skel{height:26px; border-radius:999px; background:#1a1a20; position:relative; overflow:hidden}
+.tags-loading .skel::after{content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite}
 .overlay.center .sheet{border-radius:16px; max-width: 820px; width: 92%; max-height: 88vh; display:flex; flex-direction:column; box-shadow: 0 20px 60px #000a}
 .overlay.center .grab{display:none}
+.chip.in-search{ box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 30%, transparent) inset }
 .sheet-header{display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 12px 16px; border-bottom:1px solid var(--border)}
 .sheet-body{padding: 12px 16px; overflow:auto}
 .btn.icon{padding:6px 10px}
@@ -307,6 +361,11 @@ a.icon-btn:hover, a.icon-btn:active, a.icon-btn:focus{ text-decoration:none }
 .fields input[type="text"]{height: var(--control-h); border:1px solid var(--border); border-radius:10px; padding:0 10px; background: var(--bg); color: var(--text)}
 
 /* Custom toggle switch */
+
+/* Full-width tag overlay on phones */
+@media (max-width: 640px){
+  #tags-overlay .sheet{ width: 100%; max-width: none; border-radius: 16px 16px 0 0; }
+}
 .switch{display:flex; align-items:center; gap:10px}
 .switch input{position:absolute; opacity:0; width:0; height:0}
 .switch .switch-ui{width:44px; height:26px; background: var(--border); border:1px solid var(--border); border-radius:999px; position:relative; transition: background .2s, border-color .2s}

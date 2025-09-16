@@ -1,7 +1,7 @@
-import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js';
-import { API } from '../core/api.js';
-import { LS, saveLS, settings, filters, groups, favorites, favSet } from '../core/state.js';
-import { getSearchState, addSearchTag } from './search.js';
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250916';
+import { API } from '../core/api.js?v=20250916';
+import { LS, saveLS, settings, filters, groups, favorites, favSet } from '../core/state.js?v=20250916';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250916';
 
 let els;
 
@@ -12,6 +12,9 @@ let reachedEnd = false;
 let direction = 1; // 1 down, -1 up
 let lastScrollY = 0;
 let seen = new Set(); // dedupe posts in feed
+// Scroll deltas to debounce slight up/down jiggles
+let upDelta = 0;
+let downDelta = 0;
 
 // Home aggregator state
 let home = {
@@ -39,6 +42,9 @@ export function initFeed(domRefs){
   window.addEventListener('scroll', onScroll, { passive: true });
   els.toTop.addEventListener('click', () => window.scrollTo({ top:0, behavior:'smooth' }));
 
+  // Keep tab underline positioned on resize
+  window.addEventListener('resize', () => updateTabUnderline());
+
   // Overlay: tags
   els.tagsClose.addEventListener('click', () => hideTagsOverlay());
   els.tagsOverlay.addEventListener('click', (e) => { if (e.target === els.tagsOverlay) hideTagsOverlay(); });
@@ -46,6 +52,8 @@ export function initFeed(domRefs){
   // Initial layout
   applyTheme();
   applyColumns();
+  // Position underline for initial tab after main calls switchTab
+  setTimeout(() => updateTabUnderline(), 0);
 }
 
 export function getActiveTab(){ return activeTab; }
@@ -67,6 +75,7 @@ export function switchTab(name){
   if (activeTab === name) return;
   activeTab = name;
   els.tabs.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  updateTabUnderline();
   // Close overlays on tab change
   hideTagsOverlay();
 
@@ -84,6 +93,20 @@ export function switchTab(name){
     if ((st.include||[]).length || (st.exclude||[]).length) loadNext();
     else renderEmptyState('Add tags above to start a search.');
   }
+}
+
+function updateTabUnderline(){
+  try{
+    const bar = els?.tabbar; if (!bar) return;
+    const btn = Array.from(els?.tabs||[]).find(b => b.classList.contains('active'));
+    if (!btn) return;
+    const br = bar.getBoundingClientRect();
+    const ar = btn.getBoundingClientRect();
+    const left = Math.max(0, ar.left - br.left);
+    const width = Math.max(0, ar.width);
+    bar.style.setProperty('--tab-underline-x', left + 'px');
+    bar.style.setProperty('--tab-underline-w', width + 'px');
+  }catch{}
 }
 
 export function resetSearchPagination(){ searchPid = 0; reachedEnd = false; seen.clear(); }
@@ -376,7 +399,8 @@ function renderFavorites(){
 
 export async function showTagsOverlay(p){
   els.tagsOverlay.hidden = false;
-  els.tagsBody.innerHTML = '<div class="note" style="padding:12px">Loading tags.</div>';
+  const skel = Array.from({ length: 18 }, (_, i) => `<span class="skel" style="width:${40 + ((i*27)%80)}px"></span>`).join('');
+  els.tagsBody.innerHTML = `<div class="tags-loading">${skel}</div>`;
   const tags = (p.tags||'').split(/\s+/).filter(Boolean);
   try{
     const N = Math.min(25, tags.length);
@@ -402,13 +426,15 @@ export async function showTagsOverlay(p){
       else groupsMap['General'].push(t);
     }
     const frag = document.createDocumentFragment();
+    const st = getSearchState();
     for (const [name, arr] of Object.entries(groupsMap)){
       if (!arr.length) continue;
       const sec = document.createElement('div');
       sec.innerHTML = `<h4 style="margin:8px 0 6px 0">${name}</h4>`;
       const chips = document.createElement('div'); chips.className = 'chips small';
       for (const t of arr){
-        const c = document.createElement('span'); c.className = 'chip';
+        const key = String(t||'').toLowerCase(); const inInc = (st.include||[]).includes(key); const inExc = (st.exclude||[]).includes(key);
+        const c = document.createElement('span'); c.className = 'chip' + (inExc ? ' excluded' : (inInc ? ' in-search' : ''));
         c.innerHTML = `<span class="t">${escapeHtml(t)}</span><span class="x" title="Add">+</span>`;
         c.title = 'Add to search';
         c.addEventListener('click', () => addSearchTag(t));
@@ -416,7 +442,37 @@ export async function showTagsOverlay(p){
       }
       try{
         const cls = name === 'Meta' ? 'tag-meta' : name === 'Characters' ? 'tag-character' : name === 'Copyrights' ? 'tag-copyright' : name === 'Artists' ? 'tag-artist' : 'tag-general';
-        chips.querySelectorAll('.chip').forEach(ch => { ch.classList.add(cls); const x = ch.querySelector('.x'); if (x) x.textContent = '+'; });
+        chips.querySelectorAll('.chip').forEach(ch => {
+          ch.classList.add(cls);
+          // Remove original click listener by cloning the node
+          const node = ch.cloneNode(true);
+          ch.parentNode.replaceChild(node, ch);
+          const label = node.querySelector('.t')?.textContent || '';
+          const key2 = label.toLowerCase();
+          const inInc2 = (st.include||[]).includes(key2);
+          const inExc2 = (st.exclude||[]).includes(key2);
+          node.classList.toggle('in-search', inInc2);
+          node.classList.toggle('excluded', inExc2);
+          const x = node.querySelector('.x');
+          if (x) x.textContent = inInc2 ? '✓' : (inExc2 ? '-' : '+');
+          node.title = inInc2 ? 'In search — click to remove' : (inExc2 ? 'Excluded — click to include' : 'Add to search');
+          node.addEventListener('click', () => {
+            const cur = getSearchState();
+            const isInc = (cur.include||[]).includes(key2);
+            const isExc = (cur.exclude||[]).includes(key2);
+            if (isExc) { toggleSearchTag(key2, true); }
+            else if (isInc) { removeSearchTag(key2, false); }
+            else { addSearchTag(label); }
+            const st3 = getSearchState();
+            const ni2 = (st3.include||[]).includes(key2);
+            const ne2 = (st3.exclude||[]).includes(key2);
+            node.classList.toggle('in-search', ni2);
+            node.classList.toggle('excluded', ne2);
+            const x2 = node.querySelector('.x');
+            if (x2) x2.textContent = ni2 ? '✓' : (ne2 ? '-' : '+');
+            node.title = ni2 ? 'In search — click to remove' : (ne2 ? 'Excluded — click to include' : 'Add to search');
+          });
+        });
       }catch{}
       sec.appendChild(chips);
       frag.appendChild(sec);
@@ -434,11 +490,19 @@ export function onScroll(){
   const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
   const pct = clamp(y / max, 0, 1);
   els.scrollProgress.style.width = (pct*100).toFixed(1) + '%';
-  const dir = y > lastScrollY ? 1 : (y < lastScrollY ? -1 : direction);
-  const showThreshold = 1200;
+  const dy = y - lastScrollY;
+  const dir = dy > 0 ? 1 : (dy < 0 ? -1 : direction);
+  // Distance thresholds to avoid instant show/hide on tiny scrolls
+  const showThreshold = 1200; // only consider button after this scroll depth
+  const showMinDelta = 90;    // need to scroll up at least this much to show
+  const hideMinDelta = 120;   // need to scroll down at least this much to hide
   const nearTop = y < 200;
-  if (dir < 0 && y > showThreshold) { showToTopBtn(); }
-  if (dir > 0 || nearTop) { hideToTopBtn(); }
+  // Accumulate deltas in current direction; reset when direction flips
+  if (dy < 0) { upDelta += -dy; downDelta = 0; }
+  else if (dy > 0) { downDelta += dy; upDelta = 0; }
+
+  if (dir < 0 && y > showThreshold && upDelta >= showMinDelta) { showToTopBtn(); upDelta = 0; }
+  if ((dir > 0 && downDelta >= hideMinDelta) || nearTop) { hideToTopBtn(); downDelta = 0; }
   direction = dir;
   lastScrollY = y;
 }
@@ -448,15 +512,18 @@ function showToTopBtn(){
   if (b.classList.contains('visible')) return;
   if (b.hidden) { b.hidden = false; void b.offsetWidth; }
   b.classList.add('visible');
+  // Reset deltas to avoid immediate hide on minor scrolls
+  upDelta = 0; downDelta = 0;
 }
 function hideToTopBtn(){
   const b = els.toTop; if (!b) return;
   if (!b.classList.contains('visible')) { b.hidden = true; return; }
   b.classList.remove('visible');
+  // Reset deltas to avoid immediate show on minor scrolls
+  upDelta = 0; downDelta = 0;
   const onEnd = () => {
     if (!b.classList.contains('visible')) { b.hidden = true; }
     b.removeEventListener('transitionend', onEnd);
   };
   b.addEventListener('transitionend', onEnd);
 }
-

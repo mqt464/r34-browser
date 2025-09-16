@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>R34 Browser</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20250916" />
     <meta name="color-scheme" content="light dark" />
     <!-- PWA/Standalone full-screen for iOS/Android home screen installs -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -23,7 +23,23 @@
           <span class="sep">•</span>
           <span class="title">Browser</span>
           <span style="flex:1"></span>
-          <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Open settings">Settings</button>
+          <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Open settings">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20" height="20" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"
+              aria-hidden="true" focusable="false"
+            >
+              <!-- Sliders (settings) icon -->
+              <line x1="6"  y1="4"  x2="6"  y2="20" />
+              <line x1="12" y1="4"  x2="12" y2="20" />
+              <line x1="18" y1="4"  x2="18" y2="20" />
+              <circle cx="6"  cy="10" r="2" />
+              <circle cx="12" cy="14" r="2" />
+              <circle cx="18" cy="8"  r="2" />
+            </svg>
+          </button>
         </div>
 
         <div class="searchbox" role="search">
@@ -32,7 +48,7 @@
           <div id="autocomplete" class="autocomplete" hidden></div>
         </div>
 
-        <div id="tag-chips" class="chips" aria-live="polite"></div>
+        <div id="tag-chips" class="chips small" aria-live="polite"></div>
 
         <div id="scroll-progress" class="scroll-progress"><div></div></div>
       </header>
@@ -213,6 +229,6 @@
       </template>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/main.js?v=20250916"></script>
   </body>
   </html>
