@@ -26,3 +26,11 @@ All notable changes to this project will be documented in this file.
 ### Notes
 - RealBooru API is offline; scraping requires a proxy for HTML endpoints. Images/videos usually load direct, but enable "Use proxy for media" if your browser blocks hotlinking.
 
+
+## [0.2.1] - 2025-09-19
+
+### Fixed
+- Centered spinners in CORS Proxy, User ID, and API Key fields (no transform conflict).
+- Live proxy updates now apply immediately: autocomplete re-fetches and Search reloads using the new proxy.
+- Autocomplete metadata enrichment consistently uses the active provider after toggling.
+
