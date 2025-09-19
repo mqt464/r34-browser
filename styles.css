@@ -135,8 +135,10 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .proxy-wrap input{ height: var(--control-h); width: 100%; }
 .proxy-wrap input.ok{ border-color: #22c55e; box-shadow: 0 0 0 2px color-mix(in oklab, #22c55e 22%, transparent) inset }
 .proxy-wrap input.err{ border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in oklab, var(--danger) 18%, transparent) inset }
-.proxy-wrap .input-spinner{ position:absolute; right:10px; top:50%; margin-top:-8px; width:16px; height:16px; border:2px solid color-mix(in oklab, var(--accent) 30%, transparent); border-top-color: var(--accent); border-radius:50%; display:none }
-.proxy-wrap.testing .input-spinner{ display:inline-block; animation: spin .8s linear infinite }
+/* Spinner container centered via translate; actual rotation on pseudo-element to avoid transform conflict */
+.proxy-wrap .input-spinner{ position:absolute; right:10px; top:50%; transform: translateY(-50%); width:16px; height:16px; display:none }
+.proxy-wrap .input-spinner::after{ content:""; display:block; width:100%; height:100%; border:2px solid color-mix(in oklab, var(--accent) 30%, transparent); border-top-color: var(--accent); border-radius:50%; animation: spin .8s linear infinite }
+.proxy-wrap.testing .input-spinner{ display:inline-block }
 .searchbox input{
   flex:1; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
   background: var(--bg-elev); color: var(--text);

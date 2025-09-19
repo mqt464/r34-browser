@@ -151,13 +151,15 @@ export function renderSettings(){
     const testProxy = debounce(async ()=>{
       const val = (prox?.value||'').trim();
       if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{} return; }
+      // Persist proxy and announce change immediately so requests start using it without waiting for test
       settings.corsProxy = val; saveLS(LS.settings, settings);
+      try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
       proxyWrap?.classList.add('testing'); prox?.classList.remove('ok','err');
       try{
         // RealBooru HTML endpoint requires proxy; this verifies the proxy format works
         await fetchText('https://realbooru.com/index.php?page=autocomplete&term=mi', /*allowProxy*/ true);
         proxyWrap?.classList.remove('testing'); prox?.classList.add('ok');
-        try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
+        // Successful test already announced; nothing further needed
       }catch{ proxyWrap?.classList.remove('testing'); prox?.classList.add('err'); }
     }, 600);
     prox?.addEventListener('input', testProxy);
