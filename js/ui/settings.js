@@ -150,13 +150,14 @@ export function renderSettings(){
     // Proxy test with spinner + subtle outline
     const testProxy = debounce(async ()=>{
       const val = (prox?.value||'').trim();
-      if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); return; }
+      if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{} return; }
       settings.corsProxy = val; saveLS(LS.settings, settings);
       proxyWrap?.classList.add('testing'); prox?.classList.remove('ok','err');
       try{
         // RealBooru HTML endpoint requires proxy; this verifies the proxy format works
         await fetchText('https://realbooru.com/index.php?page=autocomplete&term=mi', /*allowProxy*/ true);
         proxyWrap?.classList.remove('testing'); prox?.classList.add('ok');
+        try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
       }catch{ proxyWrap?.classList.remove('testing'); prox?.classList.add('err'); }
     }, 600);
     prox?.addEventListener('input', testProxy);
@@ -247,9 +248,21 @@ export function renderSettings(){
   // Auto-test Rule34 credentials with inline spinner + outline
   try{
     const uid = $('#opt-user-id'); const key = $('#opt-api-key');
-    const wrap = (el) => el ? el.parentElement : null;
-    const uidWrap = wrap(uid); const keyWrap = wrap(key);
-    [uidWrap, keyWrap].forEach(w => { if (w){ w.classList.add('proxy-wrap'); if (!w.querySelector('.input-spinner')){ const s = document.createElement('span'); s.className = 'input-spinner'; s.setAttribute('aria-hidden','true'); w.appendChild(s); } } });
+    const getLabelWrap = (el) => el ? el.parentElement : null;
+    const uidWrap = getLabelWrap(uid); const keyWrap = getLabelWrap(key);
+    [uidWrap, keyWrap].forEach(w => {
+      if (!w) return;
+      w.classList.add('proxy-wrap');
+      let inner = w.querySelector('.input-wrap');
+      if (!inner){
+        inner = document.createElement('div'); inner.className = 'input-wrap';
+        const input = w.querySelector('input');
+        if (input){ w.insertBefore(inner, input); inner.appendChild(input); }
+      }
+      if (inner && !inner.querySelector('.input-spinner')){
+        const s = document.createElement('span'); s.className = 'input-spinner'; s.setAttribute('aria-hidden','true'); inner.appendChild(s);
+      }
+    });
     const clearStates = () => { [uid,key].forEach(el => el && el.classList.remove('ok','err')); [uidWrap,keyWrap].forEach(w => w && w.classList.remove('testing')); };
     const setTesting = () => { [uidWrap,keyWrap].forEach(w => w && w.classList.add('testing')); };
     const setResult = (ok) => { [uid,key].forEach(el => el && el.classList.add(ok?'ok':'err')); };
@@ -530,3 +543,4 @@ function favoritesPerMonth(posts, month){
   let c = 0; for (const p of posts){ const m = parseMonth(p.created_at || p.change || ''); if (m===month) c++; }
   return c;
 }
+
