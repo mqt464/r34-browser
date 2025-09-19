@@ -57,6 +57,9 @@ export const session = {
   providerOverride: ''
 };
 
+// App version for display in Settings
+export const APP_VERSION = 'v2025.09.19';
+
 export function setSettings(next){ settings = next; saveLS(LS.settings, settings); }
 export function setFilters(next){ filters = next; saveLS(LS.filters, filters); }
 export function setGroups(next){ groups = next; saveLS(LS.groups, groups); }

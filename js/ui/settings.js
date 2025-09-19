@@ -1,5 +1,5 @@
 import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250919';
-import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData } from '../core/state.js?v=20250919';
+import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250919';
 import { API, parseTagXML, fetchText } from '../core/api.js?v=20250919';
 import { renderChipsFix, normalizeTag } from './search.js?v=20250919';
 import { applyTheme, applyColumns } from './feed.js?v=20250919';
@@ -240,6 +240,19 @@ export function renderSettings(){
   $('#data-import').addEventListener('change', onImport);
   $('#data-reset').addEventListener('click', onReset);
   renderAnalytics();
+
+  // Version footer
+  try{
+    const root = els.settingsContainer.querySelector('.settings');
+    if (root){
+      const ver = document.createElement('div');
+      ver.className = 'note';
+      ver.style.textAlign = 'center';
+      ver.style.margin = '12px 0 6px 0';
+      ver.textContent = `Version ${APP_VERSION}`;
+      root.appendChild(ver);
+    }
+  }catch{}
 
   // API
   $('#opt-user-id').value = settings.apiUserId || '';
