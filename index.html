@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex,nofollow" />
     <title>R34 Browser</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20250916" />
+    <link rel="stylesheet" href="styles.css?v=20250919" />
     <meta name="color-scheme" content="light dark" />
     <!-- PWA/Standalone full-screen for iOS/Android home screen installs -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -43,6 +43,7 @@
         </div>
 
         <div class="searchbox" role="search">
+          <button id="provider-toggle" class="provider-btn" title="Change provider" aria-label="Change provider">R34</button>
           <input id="search-input" type="text" placeholder="Search tags… (press Enter to add, then press Search)" autocomplete="off" />
           <button id="search-go" class="btn" title="Search">Search</button>
           <div id="autocomplete" class="autocomplete" hidden></div>
@@ -197,10 +198,7 @@
                 <input id="opt-api-key" type="text" placeholder="Your Rule34 API key" />
               </label>
             </div>
-            <div class="row" style="margin-top:8px">
-              <button id="api-test" class="btn">Test API</button>
-              <div id="api-msg" class="note" style="align-self:center" aria-live="polite"></div>
-            </div>
+            
           </div>
         </section>
       </template>
@@ -229,6 +227,6 @@
       </template>
     </div>
 
-    <script type="module" src="js/main.js?v=20250916"></script>
+    <script type="module" src="js/main.js?v=20250919"></script>
   </body>
   </html>

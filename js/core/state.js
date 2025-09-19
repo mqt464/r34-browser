@@ -12,6 +12,12 @@ export const DEFAULTS = {
     columns: 1,
     theme: 'system',
     accent: '#7c3aed',
+    // Data source: 'rule34' | 'realbooru'
+    provider: 'rule34',
+    // Optional CORS proxy prefix (e.g. https://r.jina.ai/http/)
+    corsProxy: '',
+    // When using RealBooru, proxy images too (saves hotlink issues but uses proxy bandwidth)
+    proxyImages: false,
     apiUserId: '4521884',
     apiKey: '15119be19dd87c0655837088376c4ae68b2f270f906c28611617a4661981c9531a7c60e3e0ca188ae56b54dd1313017207565f793812311e9c3b20dc6a9a497b',
     perPage: 30,
@@ -45,6 +51,12 @@ export let favorites = loadLS(LS.favorites, DEFAULTS.favorites);
 
 export const favSet = new Set(favorites.ids);
 
+// Ephemeral session state (not persisted)
+export const session = {
+  // Empty string means no override; use settings.provider
+  providerOverride: ''
+};
+
 export function setSettings(next){ settings = next; saveLS(LS.settings, settings); }
 export function setFilters(next){ filters = next; saveLS(LS.filters, filters); }
 export function setGroups(next){ groups = next; saveLS(LS.groups, groups); }
@@ -61,4 +73,3 @@ export function resetAllData(){
   favorites = loadLS(LS.favorites, DEFAULTS.favorites);
   favSet.clear();
 }
-

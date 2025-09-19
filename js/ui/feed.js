@@ -1,7 +1,7 @@
-import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250916';
-import { API } from '../core/api.js?v=20250916';
-import { LS, saveLS, settings, filters, groups, favorites, favSet } from '../core/state.js?v=20250916';
-import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250916';
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250919';
+import { API, fetchText } from '../core/api.js?v=20250919';
+import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250919';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250919';
 
 let els;
 
@@ -15,6 +15,7 @@ let seen = new Set(); // dedupe posts in feed
 // Scroll deltas to debounce slight up/down jiggles
 let upDelta = 0;
 let downDelta = 0;
+let rbEnrichIO = null;
 
 // Home aggregator state
 let home = {
@@ -54,6 +55,18 @@ export function initFeed(domRefs){
   applyColumns();
   // Position underline for initial tab after main calls switchTab
   setTimeout(() => updateTabUnderline(), 0);
+
+  // Observer to enrich RealBooru cards with actual media when visible
+  try{
+    rbEnrichIO = new IntersectionObserver((entries) => {
+      for (const e of entries){
+        if (e.isIntersecting){
+          const el = e.target; rbEnrichIO.unobserve(el);
+          enrichRealBooruCard(el).catch(()=>{});
+        }
+      }
+    }, { rootMargin: '200px' });
+  }catch{}
 }
 
 export function getActiveTab(){ return activeTab; }
@@ -139,12 +152,12 @@ export async function loadNext(){
     if (activeTab === 'search') {
       const st = getSearchState();
       const tags = composeTags(st.include||[], st.exclude||[]);
-      const data = await API.posts({ tags, limit: settings.perPage, pid: searchPid });
+      const data = await API.posts({ tags, limit: settings.perPage, pid: searchPid, provider: (session.providerOverride || settings.provider || 'rule34') });
       const posts = sanitizePosts(data);
       const added = renderPosts(posts);
       if (added === 0) {
         searchPid++;
-        const d2 = await API.posts({ tags, limit: settings.perPage, pid: searchPid });
+        const d2 = await API.posts({ tags, limit: settings.perPage, pid: searchPid, provider: (session.providerOverride || settings.provider || 'rule34') });
         const p2 = sanitizePosts(d2);
         const a2 = renderPosts(p2);
         if (a2 === 0) {
@@ -173,7 +186,7 @@ export async function loadNext(){
         const pid = home.pids[g.id] || 0;
         const tags = composeTags(g.include||[], g.exclude||[]);
         try{
-          const data = await API.posts({ tags, limit: perGroup, pid });
+          const data = await API.posts({ tags, limit: perGroup, pid, provider: g.provider || 'rule34' });
           const posts = sanitizePosts(data);
           if (!Array.isArray(posts) || posts.length === 0){ home.exhausted[g.id] = true; continue; }
           anyFetched = true;
@@ -239,20 +252,25 @@ function sanitizePosts(data){
     throw new Error(msg);
   }
   const arr = Array.isArray(data) ? data : (data?.post ? [].concat(data.post) : []);
-  return arr.filter(p => p && p.file_url && p.id).map(p => ({
-    id: String(p.id),
-    file_url: p.file_url,
-    sample_url: p.sample_url || p.file_url,
-    preview_url: p.preview_url || p.sample_url || p.file_url,
-    file_ext: p.file_ext || (p.file_url.split('.').pop() || '').toLowerCase(),
-    width: Number(p.width)||0,
-    height: Number(p.height)||0,
-    rating: p.rating || 'q',
-    tags: (p.tags||'').trim(),
-    owner: p.owner || '',
-    created_at: p.created_at || p.change || '',
-    source: p.source || '',
-  }));
+  return arr.filter(p => p && p.file_url && p.id).map(p => {
+    const hasVC = Array.isArray(p.video_candidates) && p.video_candidates.length > 0;
+    const ext = String(p.file_ext || (p.file_url.split('.').pop() || '')).toLowerCase();
+    return {
+      id: String(p.id),
+      file_url: p.file_url,
+      sample_url: p.sample_url || p.file_url,
+      preview_url: p.preview_url || p.sample_url || p.file_url,
+      file_ext: hasVC ? 'mp4' : ext,
+      width: Number(p.width)||0,
+      height: Number(p.height)||0,
+      rating: p.rating || 'q',
+      tags: (p.tags||'').trim(),
+      owner: p.owner || '',
+      created_at: p.created_at || p.change || '',
+      source: p.source || '',
+      video_candidates: hasVC ? p.video_candidates.slice() : [],
+    };
+  });
 }
 
 function showSkeletons(count = Math.max(4, Math.min(12, settings.perPage/2))){
@@ -284,15 +302,18 @@ function renderPosts(posts){
 }
 
 function postCard(p){
-  const isVideo = ['mp4','webm'].includes(p.file_ext);
+  const hasCandidates = Array.isArray(p.video_candidates) && p.video_candidates.length > 0;
+  const isVideo = ['mp4','webm'].includes(p.file_ext) || hasCandidates;
   const art = document.createElement('article');
   art.className = 'post-card';
   art.dataset.id = p.id;
+  art.__post = p;
   art.innerHTML = `
       <div class="post-media" data-id="${p.id}">
         <div class="like-heart">?</div>
-        ${isVideo ? `<video preload="metadata" playsinline muted controls poster="${escapeHtml(p.preview_url || p.sample_url || '')}" src="${escapeHtml(p.file_url)}"></video>`
-                   : `<img loading=\"lazy\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
+        ${isVideo ? `<video preload="metadata" playsinline muted controls poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
+                   : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
+        <div class="media-skel"></div>
       </div>
       <div class="post-meta">
         <div class="left">
@@ -309,6 +330,7 @@ function postCard(p){
   const rightBox = $('.post-meta .right', art);
   const dlLink = $('a[download]', art);
   const media = $('.post-media', art);
+  const imgEl = $('img', media);
   const heart = $('.like-heart', media);
   const favBtn = $('.fav', art);
   const tagsBtn = $('[data-act="tags"]', art);
@@ -358,13 +380,114 @@ function postCard(p){
   // Tags button
   tagsBtn.addEventListener('click', () => showTagsOverlay(p));
 
+  const skel = $('.media-skel', media);
   if (video){
+    const setVideoSrc = () => {
+      if (Array.isArray(p.video_candidates) && p.video_candidates.length){ video.src = p.video_candidates[0]; return; }
+      if (p.file_ext === 'mp4' || p.file_ext === 'webm'){ video.src = p.file_url; }
+    };
+    setVideoSrc();
+    let vcIdx = 0;
+    video.addEventListener('loadeddata', () => { skel?.remove(); }, { once: true });
+    video.addEventListener('error', () => {
+      // Try next candidate or fallback to image
+      if (Array.isArray(p.video_candidates) && vcIdx < p.video_candidates.length - 1){
+        vcIdx++; video.src = p.video_candidates[vcIdx];
+      } else {
+        const img = document.createElement('img');
+        img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+        img.src = p.sample_url || p.file_url || '';
+        img.alt = 'post';
+        video.replaceWith(img);
+        img.addEventListener('load', () => skel?.remove(), { once: true });
+      }
+    }, { passive: true });
     video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
     const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
     vis.observe(video);
   }
 
+  // If RealBooru item and not already a video, schedule enrichment when visible
+  try{
+    if (!isVideo && typeof p?.source === 'string' && p.source.includes('realbooru.com') && rbEnrichIO){
+      rbEnrichIO.observe(art);
+    }
+  }catch{}
+
+  // Image fallback chain for RealBooru hotlink protection or missing sample
+  if (imgEl){
+    try{
+      const src0 = imgEl.getAttribute('src') || '';
+      const candidates = [];
+      if (src0.includes('/samples/') && /sample_([a-f0-9]{32})\.jpg$/i.test(src0)){
+        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.jpg$/i.exec(src0);
+        if (m){
+          const prefix = m[1]; const md5 = m[2];
+          candidates.push(`https://realbooru.com/images/${prefix}${md5}.jpg`);
+          candidates.push(`https://realbooru.com/images/${prefix}${md5}.jpeg`);
+          candidates.push(`https://realbooru.com/images/${prefix}${md5}.png`);
+        }
+      }
+      if (p.preview_url) candidates.push(p.preview_url);
+      // Try without referer
+      imgEl.setAttribute('referrerpolicy','no-referrer');
+      let idx = 0;
+      const tryNext = () => {
+        if (idx >= candidates.length) return;
+        imgEl.src = candidates[idx++];
+      };
+      imgEl.addEventListener('error', () => tryNext(), { passive: true });
+      imgEl.addEventListener('load', () => skel?.remove(), { once: true });
+      // If initial src fails quickly, the error handler will push through candidates automatically
+    }catch{}
+  }
+
   return art;
+}
+
+function proxyUrlIfNeeded(url){
+  try{
+    if (!url) return url;
+    if (!settings?.proxyImages || !settings?.corsProxy) return url;
+    const p = String(settings.corsProxy).trim(); if (!p) return url;
+    if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
+    if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
+    if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
+    const lower = p.toLowerCase();
+    if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) return p.replace(/\/?$/,'/') + url;
+    if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
+    return p + url;
+  }catch{ return url; }
+}
+
+async function enrichRealBooruCard(art){
+  const p = art?.__post; if (!p || !p.source) return;
+  try{
+    const html = await fetchText(p.source, /*allowProxy*/ true);
+    const urls = [];
+    const re = /https?:\/\/realbooru\.com\/(?:images|videos)\/[^"'<>\s]+?\.(?:mp4|webm)/ig;
+    let m; while ((m = re.exec(html))){ const u = m[0]; if (!urls.includes(u)) urls.push(u); }
+    if (!urls.length) return;
+    urls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
+    p.video_candidates = urls.slice(0,4).map(u => proxyUrlIfNeeded(u));
+    p.file_ext = (urls[0].split('.').pop()||'').toLowerCase();
+    p.file_url = p.video_candidates[0];
+    const media = $('.post-media', art); if (!media) return;
+    const img = $('img', media);
+    let video = $('video', media);
+    if (!video){
+      video = document.createElement('video');
+      video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
+      video.poster = p.preview_url || p.sample_url || '';
+      video.src = p.file_url;
+      if (img) img.replaceWith(video); else media.appendChild(video);
+      video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
+      const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
+      vis.observe(video);
+    } else {
+      video.src = p.file_url;
+    }
+  }catch{}
 }
 
 function toggleFavorite(p){

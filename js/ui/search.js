@@ -1,6 +1,6 @@
-import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250916';
-import { API } from '../core/api.js?v=20250916';
-import { settings } from '../core/state.js?v=20250916';
+import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250919';
+import { API } from '../core/api.js?v=20250919';
+import { settings, session } from '../core/state.js?v=20250919';
 
 export const searchState = { include: [], exclude: [] };
 
@@ -74,7 +74,8 @@ export async function onAutocomplete(){
   const q = els.searchInput.value.trim();
   if (!q) { els.autocomplete.hidden = true; return; }
   try {
-    const items = await API.autocomplete(q);
+    const provider = String((session?.providerOverride) || (settings?.provider) || 'rule34');
+    const items = await API.autocomplete(q, provider);
     const list = (Array.isArray(items) ? items : []).slice(0, 20);
     if (!list.length) { els.autocomplete.hidden = true; return; }
 
@@ -113,11 +114,19 @@ export async function onAutocomplete(){
     const version = (++onAutocomplete._ver || (onAutocomplete._ver = 1));
     const rows = Array.from(els.autocomplete.querySelectorAll('.item'));
     const names = rows.map(r => r.dataset.v);
+    // If provider lacks tag meta (e.g. RealBooru), remove skeletons and skip enrichment
+    if (provider === 'realbooru'){
+      rows.forEach(row => {
+        const tEl = row.querySelector('.type'); if (tEl){ tEl.classList.remove('skel'); tEl.textContent = 'General'; tEl.classList.add('general'); }
+        const cEl = row.querySelector('.count'); if (cEl){ cEl.classList.remove('skel'); cEl.textContent = ''; }
+      });
+      return;
+    }
     // Limit concurrency and requests to top 12 to stay snappy
     const limit = Math.min(12, names.length);
     const tasks = names.slice(0, limit).map((name, idx) => (async () => {
       try{
-        const meta = await API.tagMeta(name);
+        const meta = await API.tagMeta(name, provider);
         // Ignore if another query happened
         if (version !== onAutocomplete._ver) return;
         const arr = Array.isArray(meta) ? meta : (Array.isArray(meta?.tag) ? meta.tag : []);
