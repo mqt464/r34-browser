@@ -331,6 +331,21 @@ function postCard(p){
   const dlLink = $('a[download]', art);
   const media = $('.post-media', art);
   const imgEl = $('img', media);
+  // Prefer RealBooru original image upfront if we can derive it
+  if (imgEl){
+    try{
+      const src0 = imgEl.getAttribute('src') || '';
+      const hint = [src0, p?.file_url||'', p?.preview_url||'', p?.source||''].join(' ');
+      const isRB = /realbooru\.com/i.test(hint);
+      if (!isVideo && isRB && src0.includes('/samples/')){
+        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.exec(src0);
+        if (m){
+          const prefix = m[1]; const md5 = m[2];
+          imgEl.src = proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpg`);
+        }
+      }
+    }catch{}
+  }
   const heart = $('.like-heart', media);
   const favBtn = $('.fav', art);
   const tagsBtn = $('[data-act="tags"]', art);
@@ -382,63 +397,135 @@ function postCard(p){
 
   const skel = $('.media-skel', media);
   if (video){
-    // On iOS, prefer mp4 candidate order\n    try{ const ua = (navigator.userAgent||'').toLowerCase(); const isIOS = /iphone|ipad|ipod/.test(ua); if (isIOS && Array.isArray(p.video_candidates)){ p.video_candidates = p.video_candidates.filter(u=>u.toLowerCase().endsWith('.mp4')).concat(p.video_candidates.filter(u=>!u.toLowerCase().endsWith('.mp4'))); } }catch{}\n    const setVideoSrc = () => {
-      if (Array.isArray(p.video_candidates) && p.video_candidates.length){ video.src = p.video_candidates[0]; return; }
-      if (p.file_ext === 'mp4' || p.file_ext === 'webm'){ video.src = p.file_url; }
+    // Ensure no CORS is enforced on media loads
+    try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
+    // On iOS, prefer mp4 candidate order
+    try {
+      const ua = (navigator.userAgent||'').toLowerCase();
+      const isIOS = /iphone|ipad|ipod/.test(ua);
+      if (isIOS && Array.isArray(p.video_candidates)){
+        p.video_candidates = p.video_candidates
+          .filter(u => u.toLowerCase().endsWith('.mp4'))
+          .concat(p.video_candidates.filter(u => !u.toLowerCase().endsWith('.mp4')));
+      }
+    } catch {}
+
+    const setVideoSrc = () => {
+      if (Array.isArray(p.video_candidates) && p.video_candidates.length){
+        video.src = p.video_candidates[0];
+        return;
+      }
+      if (p.file_ext === 'mp4' || p.file_ext === 'webm'){
+        video.src = p.file_url;
+      }
     };
+
     setVideoSrc();
     let vcIdx = 0;
     video.addEventListener('loadeddata', () => { skel?.remove(); }, { once: true });
     video.addEventListener('error', () => {
       // Try next candidate or fallback to image
       if (Array.isArray(p.video_candidates) && vcIdx < p.video_candidates.length - 1){
-        vcIdx++; video.src = p.video_candidates[vcIdx];
+        vcIdx++;
+        video.src = p.video_candidates[vcIdx];
       } else {
         const img = document.createElement('img');
-        img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
         img.src = p.sample_url || p.file_url || '';
         img.alt = 'post';
         video.replaceWith(img);
         img.addEventListener('load', () => skel?.remove(), { once: true });
       }
     }, { passive: true });
-    video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
-    const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
+
+    video.addEventListener('click', () => {
+      if (video.paused) video.play().catch(()=>{});
+      else video.pause();
+    });
+
+    const vis = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (!e.isIntersecting) video.pause(); });
+    }, { rootMargin: '200px' });
     vis.observe(video);
   }
 
   // If RealBooru item and not already a video, schedule enrichment when visible
   try{
-    if (!isVideo && typeof p?.source === 'string' && p.source.includes('realbooru.com') && rbEnrichIO){
+    const rbHint = [p?.file_url||'', p?.preview_url||'', p?.sample_url||'', p?.source||''].join(' ');
+    const isRBPost = /realbooru\.com/i.test(rbHint);
+    if (!isVideo && isRBPost && rbEnrichIO){
       rbEnrichIO.observe(art);
     }
   }catch{}
 
-  // Image fallback chain for RealBooru hotlink protection or missing sample
+  // Image fallback chain (RealBooru upgrade + generic fallbacks)
   if (imgEl){
     try{
       const src0 = imgEl.getAttribute('src') || '';
       const candidates = [];
-      if (src0.includes('/samples/') && /sample_([a-f0-9]{32})\.jpg$/i.test(src0)){
-        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.jpg$/i.exec(src0);
+      const rbHint = [src0, p?.file_url||'', p?.preview_url||'', p?.sample_url||''].join(' ');
+      const isRB = /realbooru\.com/i.test(rbHint);
+
+      // RealBooru: try to upgrade sample -> full image
+      if (isRB && src0.includes('/samples/') && /sample_([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.test(src0)){
+        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.exec(src0);
         if (m){
           const prefix = m[1]; const md5 = m[2];
-          candidates.push(`https://realbooru.com/images/${prefix}${md5}.jpg`);
-          candidates.push(`https://realbooru.com/images/${prefix}${md5}.jpeg`);
-          candidates.push(`https://realbooru.com/images/${prefix}${md5}.png`);
+          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpg`));
+          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpeg`));
+          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.png`));
+          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.gif`));
+          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.webp`));
         }
       }
-      if (p.preview_url) candidates.push(p.preview_url);
-      // Try without referer
+
+      // Generic fallbacks (only used on error)
+      if (p.preview_url) candidates.push(proxyUrlIfNeeded(p.preview_url));
+      try{
+        if (p.file_url && !['mp4','webm'].includes(String(p.file_ext||'').toLowerCase()) && p.file_url !== src0){
+          candidates.push(proxyUrlIfNeeded(p.file_url));
+        }
+      }catch{}
+      // Try proxied original src as a last resort if proxy is configured
+      try{
+        const prox0 = proxyUrlIfNeeded(src0);
+        if (prox0 && prox0 !== src0) candidates.push(prox0);
+      }catch{}
+
+      // First pass: without referer (often helps)
       imgEl.setAttribute('referrerpolicy','no-referrer');
       let idx = 0;
+      let triedWithRef = false;
       const tryNext = () => {
-        if (idx >= candidates.length) return;
-        imgEl.src = candidates[idx++];
+        if (idx >= candidates.length){
+          if (!triedWithRef){
+            // Second pass: allow referer
+            triedWithRef = true;
+            imgEl.removeAttribute('referrerpolicy');
+            idx = 0;
+          } else {
+            // Exhausted all options: stop spinner and leave current image as-is
+            try{ skel?.remove(); }catch{}
+            return;
+          }
+        }
+        const cand = candidates[idx++];
+        // Preload candidate with timeout to avoid indefinite pending states
+        const test = new Image();
+        const rp = imgEl.getAttribute('referrerpolicy') || '';
+        if (rp) try{ test.referrerPolicy = rp; }catch{}
+        let done = false;
+        const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, 4000);
+        test.onload = () => { if (done) return; done = true; clearTimeout(to); imgEl.src = cand; };
+        test.onerror = () => { if (done) return; done = true; clearTimeout(to); tryNext(); };
+        test.src = cand;
       };
+      // If the element itself errors after a successful preload, advance
       imgEl.addEventListener('error', () => tryNext(), { passive: true });
       imgEl.addEventListener('load', () => skel?.remove(), { once: true });
-      // If initial src fails quickly, the error handler will push through candidates automatically
+      // Only proactively advance for RealBooru samples
+      if (isRB && src0.includes('/samples/')) tryNext();
     }catch{}
   }
 
@@ -461,31 +548,49 @@ function proxyUrlIfNeeded(url){
 }
 
 async function enrichRealBooruCard(art){
-  const p = art?.__post; if (!p || !p.source) return;
+  const p = art?.__post; if (!p) return;
   try{
-    const html = await fetchText(p.source, /*allowProxy*/ true);
-    const urls = [];
-    const re = /https?:\/\/realbooru\.com\/(?:images|videos)\/[^"'<>\s]+?\.(?:mp4|webm)/ig;
-    let m; while ((m = re.exec(html))){ const u = m[0]; if (!urls.includes(u)) urls.push(u); }
-    if (!urls.length) return;
-    urls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
-    p.video_candidates = urls.slice(0,4).map(u => proxyUrlIfNeeded(u));
-    p.file_ext = (urls[0].split('.').pop()||'').toLowerCase();
-    p.file_url = p.video_candidates[0];
-    const media = $('.post-media', art); if (!media) return;
-    const img = $('img', media);
-    let video = $('video', media);
-    if (!video){
-      video = document.createElement('video');
-      video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
-      video.poster = p.preview_url || p.sample_url || '';
-      video.src = p.file_url;
-      if (img) img.replaceWith(video); else media.appendChild(video);
-      video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
-      const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
-      vis.observe(video);
-    } else {
-      video.src = p.file_url;
+    let postUrl = '';
+    if (typeof p?.source === 'string' && p.source.includes('realbooru.com')) postUrl = p.source;
+    else if (p?.id) postUrl = `https://realbooru.com/index.php?page=post&s=view&id=${encodeURIComponent(p.id)}`;
+    else return;
+    const html = await fetchText(postUrl, /*allowProxy*/ true);
+    // First, check for video URLs and prefer those (upgrade to video if present)
+    const vidUrls = [];
+    const reVid = /https?:\/\/realbooru\.com\/(?:images|videos)\/[^"'<>\s]+?\.(?:mp4|webm)/ig;
+    let m; while ((m = reVid.exec(html))){ const u = m[0]; if (!vidUrls.includes(u)) vidUrls.push(u); }
+    if (vidUrls.length){
+      vidUrls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
+      p.video_candidates = vidUrls.slice(0,4).map(u => proxyUrlIfNeeded(u));
+      p.file_ext = (vidUrls[0].split('.').pop()||'').toLowerCase();
+      p.file_url = p.video_candidates[0];
+      const media = $('.post-media', art); if (!media) return;
+      const img = $('img', media);
+      let video = $('video', media);
+      if (!video){
+        video = document.createElement('video');
+        video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
+        video.poster = p.preview_url || p.sample_url || '';
+        try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
+        video.src = p.file_url;
+        if (img) img.replaceWith(video); else media.appendChild(video);
+        video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
+        const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
+        vis.observe(video);
+      } else {
+        video.src = p.file_url;
+      }
+      return;
+    }
+
+    // Otherwise, try to upgrade to full-resolution image by parsing /images/ URLs
+    const imgUrls = [];
+    const reImg = /https?:\/\/realbooru\.com\/images\/[^"'<>\s]+?\.(?:jpg|jpeg|png|gif|webp)/ig;
+    let m2; while ((m2 = reImg.exec(html))){ const u = m2[0]; if (!imgUrls.includes(u)) imgUrls.push(u); }
+    if (imgUrls.length){
+      const media = $('.post-media', art); if (!media) return;
+      const img = $('img', media);
+      if (img){ img.src = proxyUrlIfNeeded(imgUrls[0]); img.referrerPolicy = 'no-referrer'; }
     }
   }catch{}
 }
