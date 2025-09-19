@@ -331,18 +331,15 @@ function postCard(p){
   const dlLink = $('a[download]', art);
   const media = $('.post-media', art);
   const imgEl = $('img', media);
-  // Prefer RealBooru original image upfront if we can derive it
+  // Prefer original/high-res image upfront if we can determine it
   if (imgEl){
     try{
       const src0 = imgEl.getAttribute('src') || '';
-      const hint = [src0, p?.file_url||'', p?.preview_url||'', p?.source||''].join(' ');
-      const isRB = /realbooru\.com/i.test(hint);
-      if (!isVideo && isRB && src0.includes('/samples/')){
-        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.exec(src0);
-        if (m){
-          const prefix = m[1]; const md5 = m[2];
-          imgEl.src = proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpg`);
-        }
+      const ext0 = String(p?.file_ext || (p?.file_url||'').split('.').pop() || '').toLowerCase();
+      const isImageFile = !!p?.file_url && !['mp4','webm'].includes(ext0);
+      if (!isVideo && isImageFile && p.file_url !== src0){
+        // Always prefer the provider's file_url if it is an image
+        imgEl.src = proxyUrlIfNeeded(p.file_url);
       }
     }catch{}
   }
@@ -467,26 +464,31 @@ function postCard(p){
       const rbHint = [src0, p?.file_url||'', p?.preview_url||'', p?.sample_url||''].join(' ');
       const isRB = /realbooru\.com/i.test(rbHint);
 
-      // RealBooru: try to upgrade sample -> full image
-      if (isRB && src0.includes('/samples/') && /sample_([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.test(src0)){
-        const m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)$/i.exec(src0);
-        if (m){
-          const prefix = m[1]; const md5 = m[2];
-          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpg`));
-          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.jpeg`));
-          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.png`));
-          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.gif`));
-          candidates.push(proxyUrlIfNeeded(`https://realbooru.com/images/${prefix}${md5}.webp`));
+      // RealBooru: derive full-res candidates from any known URL (samples or images)
+      if (isRB){
+        const tryDerive = (s) => {
+          if (!s) return null;
+          let m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+          if (!m) m = /\/images\/(..\/..\/)([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+          return m ? { prefix: m[1], md5: m[2] } : null;
+        };
+        const info = tryDerive(src0) || tryDerive(p?.file_url||'') || tryDerive(p?.preview_url||'') || tryDerive(p?.sample_url||'');
+        if (info){
+          const order = ['gif','png','jpg','jpeg','webp'];
+          for (const ex of order){
+            const u = `https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`;
+            const v = proxyUrlIfNeeded(u);
+            if (v !== src0 && !candidates.includes(v)) candidates.push(v);
+          }
         }
       }
 
       // Generic fallbacks (only used on error)
-      if (p.preview_url) candidates.push(proxyUrlIfNeeded(p.preview_url));
+      const addCand = (u) => { if (!u) return; const v = proxyUrlIfNeeded(u); if (v !== src0 && !candidates.includes(v)) candidates.push(v); };
       try{
-        if (p.file_url && !['mp4','webm'].includes(String(p.file_ext||'').toLowerCase()) && p.file_url !== src0){
-          candidates.push(proxyUrlIfNeeded(p.file_url));
-        }
+        if (p.file_url && !['mp4','webm'].includes(String(p.file_ext||'').toLowerCase())) addCand(p.file_url);
       }catch{}
+      addCand(p.preview_url);
       // Try proxied original src as a last resort if proxy is configured
       try{
         const prox0 = proxyUrlIfNeeded(src0);
@@ -516,7 +518,7 @@ function postCard(p){
         const rp = imgEl.getAttribute('referrerpolicy') || '';
         if (rp) try{ test.referrerPolicy = rp; }catch{}
         let done = false;
-        const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, 4000);
+        const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, 12000);
         test.onload = () => { if (done) return; done = true; clearTimeout(to); imgEl.src = cand; };
         test.onerror = () => { if (done) return; done = true; clearTimeout(to); tryNext(); };
         test.src = cand;
@@ -535,8 +537,18 @@ function postCard(p){
 function proxyUrlIfNeeded(url){
   try{
     if (!url) return url;
-    if (!settings?.proxyImages || !settings?.corsProxy) return url;
-    const p = String(settings.corsProxy).trim(); if (!p) return url;
+    const p = String(settings?.corsProxy||'').trim();
+    if (!p) return url;
+    // Use explicit toggle, but auto-proxy RealBooru media to ensure full-res loads
+    let shouldProxy = !!settings?.proxyImages;
+    try{
+      if (!shouldProxy){
+        const h = new URL(url).hostname.toLowerCase();
+        if (h.endsWith('realbooru.com')) shouldProxy = true;
+      }
+    }catch{}
+    if (!shouldProxy) return url;
+
     if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
     if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
     if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
@@ -555,7 +567,23 @@ async function enrichRealBooruCard(art){
     else if (p?.id) postUrl = `https://realbooru.com/index.php?page=post&s=view&id=${encodeURIComponent(p.id)}`;
     else return;
     const html = await fetchText(postUrl, /*allowProxy*/ true);
-    // First, check for video URLs and prefer those (upgrade to video if present)
+
+    // Prefer full-resolution images first (especially GIFs), then fall back to video
+    const imgUrls = [];
+    const reImg = /https?:\/\/realbooru\.com\/images\/[^"'<>\s]+?\.(?:jpg|jpeg|png|gif|webp)/ig;
+    let m2; while ((m2 = reImg.exec(html))){ const u = m2[0]; if (!imgUrls.includes(u)) imgUrls.push(u); }
+    if (imgUrls.length){
+      // Always prefer GIF when present, then PNG/JPG/JPEG/WEBP
+      const order = ['gif','png','jpg','jpeg','webp'];
+      const best = order.map(ex => imgUrls.find(u => u.toLowerCase().endsWith('.'+ex))).find(Boolean) || imgUrls[0];
+      const media = $('.post-media', art); if (!media) return;
+      const img = $('img', media);
+      if (img){ img.src = proxyUrlIfNeeded(best); img.referrerPolicy = 'no-referrer'; }
+      // Keep as image; do not upgrade to video if a GIF/image is available
+      return;
+    }
+
+    // If no full-res image found, check for video URLs and prefer those
     const vidUrls = [];
     const reVid = /https?:\/\/realbooru\.com\/(?:images|videos)\/[^"'<>\s]+?\.(?:mp4|webm)/ig;
     let m; while ((m = reVid.exec(html))){ const u = m[0]; if (!vidUrls.includes(u)) vidUrls.push(u); }
@@ -581,16 +609,6 @@ async function enrichRealBooruCard(art){
         video.src = p.file_url;
       }
       return;
-    }
-
-    // Otherwise, try to upgrade to full-resolution image by parsing /images/ URLs
-    const imgUrls = [];
-    const reImg = /https?:\/\/realbooru\.com\/images\/[^"'<>\s]+?\.(?:jpg|jpeg|png|gif|webp)/ig;
-    let m2; while ((m2 = reImg.exec(html))){ const u = m2[0]; if (!imgUrls.includes(u)) imgUrls.push(u); }
-    if (imgUrls.length){
-      const media = $('.post-media', art); if (!media) return;
-      const img = $('img', media);
-      if (img){ img.src = proxyUrlIfNeeded(imgUrls[0]); img.referrerPolicy = 'no-referrer'; }
     }
   }catch{}
 }
