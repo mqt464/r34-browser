@@ -311,7 +311,7 @@ function postCard(p){
   art.innerHTML = `
       <div class="post-media" data-id="${p.id}">
         <div class="like-heart">?</div>
-        ${isVideo ? `<video preload="metadata" playsinline muted controls poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
+        ${isVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls crossorigin="anonymous" poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
                    : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
         <div class="media-skel"></div>
       </div>
@@ -382,7 +382,7 @@ function postCard(p){
 
   const skel = $('.media-skel', media);
   if (video){
-    const setVideoSrc = () => {
+    // On iOS, prefer mp4 candidate order\n    try{ const ua = (navigator.userAgent||'').toLowerCase(); const isIOS = /iphone|ipad|ipod/.test(ua); if (isIOS && Array.isArray(p.video_candidates)){ p.video_candidates = p.video_candidates.filter(u=>u.toLowerCase().endsWith('.mp4')).concat(p.video_candidates.filter(u=>!u.toLowerCase().endsWith('.mp4'))); } }catch{}\n    const setVideoSrc = () => {
       if (Array.isArray(p.video_candidates) && p.video_candidates.length){ video.src = p.video_candidates[0]; return; }
       if (p.file_ext === 'mp4' || p.file_ext === 'webm'){ video.src = p.file_url; }
     };
@@ -650,3 +650,5 @@ function hideToTopBtn(){
   };
   b.addEventListener('transitionend', onEnd);
 }
+
+
