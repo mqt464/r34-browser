@@ -17,6 +17,27 @@ let upDelta = 0;
 let downDelta = 0;
 let rbEnrichIO = null;
 
+// Limit concurrent RealBooru enrich tasks to avoid bursts
+const ENRICH_MAX = 4;
+let enrichInFlight = 0;
+const enrichQueue = [];
+function withEnrichLimit(fn){
+  const run = () => {
+    if (enrichInFlight >= ENRICH_MAX) return;
+    const task = enrichQueue.shift();
+    if (!task) return;
+    enrichInFlight++;
+    Promise.resolve(task())
+      .catch(()=>{})
+      .finally(()=>{
+        enrichInFlight--;
+        run();
+      });
+  };
+  enrichQueue.push(fn);
+  run();
+}
+
 // Home aggregator state
 let home = {
   round: 0,
@@ -62,7 +83,7 @@ export function initFeed(domRefs){
       for (const e of entries){
         if (e.isIntersecting){
           const el = e.target; rbEnrichIO.unobserve(el);
-          enrichRealBooruCard(el).catch(()=>{});
+          withEnrichLimit(() => enrichRealBooruCard(el));
         }
       }
     }, { rootMargin: '200px' });
@@ -460,8 +481,22 @@ function postCard(p){
   if (imgEl){
     try{
       const src0 = imgEl.getAttribute('src') || '';
+      // If the initial image already loaded (small thumbs/samples), remove the spinner immediately
+      try { if (imgEl.complete && imgEl.naturalWidth > 0) skel?.remove(); } catch {}
+      const deproxy = (s) => {
+        try{
+          if (!s) return '';
+          const str = String(s);
+          const m1 = /[?&]url=([^&]+)/i.exec(str);
+          if (m1) return decodeURIComponent(m1[1]);
+          const m2 = /\/http\/(https?:\/\/[^\s]+)/i.exec(str);
+          if (m2) return m2[1];
+          return str;
+        }catch{ return String(s||''); }
+      };
+      const srcRaw = deproxy(src0);
       const candidates = [];
-      const rbHint = [src0, p?.file_url||'', p?.preview_url||'', p?.sample_url||''].join(' ');
+      const rbHint = [srcRaw, deproxy(p?.file_url||''), deproxy(p?.preview_url||''), deproxy(p?.sample_url||'')].join(' ');
       const isRB = /realbooru\.com/i.test(rbHint);
 
       // RealBooru: derive full-res candidates from any known URL (samples or images)
@@ -470,29 +505,29 @@ function postCard(p){
           if (!s) return null;
           let m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
           if (!m) m = /\/images\/(..\/..\/)([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+          if (!m) m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
           return m ? { prefix: m[1], md5: m[2] } : null;
         };
-        const info = tryDerive(src0) || tryDerive(p?.file_url||'') || tryDerive(p?.preview_url||'') || tryDerive(p?.sample_url||'');
+        const info = tryDerive(srcRaw) || tryDerive(deproxy(p?.file_url||'')) || tryDerive(deproxy(p?.preview_url||'')) || tryDerive(deproxy(p?.sample_url||''));
         if (info){
+          const push = (u) => { if (!u) return; if (u !== src0 && !candidates.includes(u)) candidates.push(u); };
           const order = ['gif','png','jpg','jpeg','webp'];
-          for (const ex of order){
-            const u = `https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`;
-            const v = proxyUrlIfNeeded(u);
-            if (v !== src0 && !candidates.includes(v)) candidates.push(v);
+          // Try direct originals first (gif/png/jpg/jpeg/webp)
+          for (const ex of order){ push(`https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`); }
+          // Only if proxy toggle is on, add proxied originals as additional options
+          const allowProxy = !!settings?.proxyImages && !!String(settings?.corsProxy||'').trim();
+          if (allowProxy){
+            const toP = (u) => proxyUrlIfNeeded(u);
+            for (const ex of order){ push(toP(`https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`)); }
           }
         }
       }
 
-      // Generic fallbacks (only used on error)
+      // Generic fallbacks (only used after original attempts)
+      // NOTE: Do NOT add preview_url (thumbnails) here; it can cause visible downgrades
       const addCand = (u) => { if (!u) return; const v = proxyUrlIfNeeded(u); if (v !== src0 && !candidates.includes(v)) candidates.push(v); };
       try{
         if (p.file_url && !['mp4','webm'].includes(String(p.file_ext||'').toLowerCase())) addCand(p.file_url);
-      }catch{}
-      addCand(p.preview_url);
-      // Try proxied original src as a last resort if proxy is configured
-      try{
-        const prox0 = proxyUrlIfNeeded(src0);
-        if (prox0 && prox0 !== src0) candidates.push(prox0);
       }catch{}
 
       // First pass: without referer (often helps)
@@ -519,15 +554,24 @@ function postCard(p){
         if (rp) try{ test.referrerPolicy = rp; }catch{}
         let done = false;
         const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, 12000);
-        test.onload = () => { if (done) return; done = true; clearTimeout(to); imgEl.src = cand; };
+        test.onload = () => {
+          if (done) return; done = true; clearTimeout(to);
+          // If we just loaded a non-thumbnail original, stop any further downgrade fallback
+          try{
+            const isOriginal = /\/images\//i.test(cand) && !/\/thumbnail_/i.test(cand);
+            if (isOriginal) { imgEl.removeEventListener('error', onErr); try{ imgEl.dataset.hi = '1'; }catch{} }
+          }catch{}
+          imgEl.src = cand;
+        };
         test.onerror = () => { if (done) return; done = true; clearTimeout(to); tryNext(); };
         test.src = cand;
       };
       // If the element itself errors after a successful preload, advance
-      imgEl.addEventListener('error', () => tryNext(), { passive: true });
+      const onErr = () => { if (imgEl?.dataset?.hi === '1') return; tryNext(); };
+      imgEl.addEventListener('error', onErr, { passive: true });
       imgEl.addEventListener('load', () => skel?.remove(), { once: true });
-      // Only proactively advance for RealBooru samples
-      if (isRB && src0.includes('/samples/')) tryNext();
+      // Proactively advance for RealBooru samples or thumbnails (consider deproxied path)
+      if (isRB && (srcRaw.includes('/samples/') || srcRaw.includes('/thumbnails/'))) tryNext();
     }catch{}
   }
 
@@ -538,16 +582,24 @@ function proxyUrlIfNeeded(url){
   try{
     if (!url) return url;
     const p = String(settings?.corsProxy||'').trim();
+    if (!p || !settings?.proxyImages) return url;
+
+    if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
+    if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
+    if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
+    const lower = p.toLowerCase();
+    if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) return p.replace(/\/?$/,'/') + url;
+    if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
+    return p + url;
+  }catch{ return url; }
+}
+
+// Build proxy URL ignoring the media toggle; used for last-resort fallbacks
+function proxyUrlAlways(url){
+  try{
+    if (!url) return url;
+    const p = String(settings?.corsProxy||'').trim();
     if (!p) return url;
-    // Use explicit toggle, but auto-proxy RealBooru media to ensure full-res loads
-    let shouldProxy = !!settings?.proxyImages;
-    try{
-      if (!shouldProxy){
-        const h = new URL(url).hostname.toLowerCase();
-        if (h.endsWith('realbooru.com')) shouldProxy = true;
-      }
-    }catch{}
-    if (!shouldProxy) return url;
 
     if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
     if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
@@ -566,20 +618,100 @@ async function enrichRealBooruCard(art){
     if (typeof p?.source === 'string' && p.source.includes('realbooru.com')) postUrl = p.source;
     else if (p?.id) postUrl = `https://realbooru.com/index.php?page=post&s=view&id=${encodeURIComponent(p.id)}`;
     else return;
-    const html = await fetchText(postUrl, /*allowProxy*/ true);
+    const cacheKey = 'rb:post:' + postUrl;
+    let html = sessionStorage.getItem(cacheKey);
+    if (!html) {
+      html = await fetchText(postUrl, /*allowProxy*/ true);
+      try { sessionStorage.setItem(cacheKey, html); } catch {}
+    }
 
     // Prefer full-resolution images first (especially GIFs), then fall back to video
     const imgUrls = [];
     const reImg = /https?:\/\/realbooru\.com\/images\/[^"'<>\s]+?\.(?:jpg|jpeg|png|gif|webp)/ig;
     let m2; while ((m2 = reImg.exec(html))){ const u = m2[0]; if (!imgUrls.includes(u)) imgUrls.push(u); }
     if (imgUrls.length){
+      // Prefer non-thumbnail originals when available; else allow thumbnail_ path (RB often 302s it to original)
+      const ordered = (() => {
+        const nonThumb = imgUrls.filter(u => !/\/thumbnail_/i.test(u));
+        return nonThumb.length ? nonThumb : imgUrls;
+      })();
       // Always prefer GIF when present, then PNG/JPG/JPEG/WEBP
       const order = ['gif','png','jpg','jpeg','webp'];
-      const best = order.map(ex => imgUrls.find(u => u.toLowerCase().endsWith('.'+ex))).find(Boolean) || imgUrls[0];
+      const best = order.map(ex => ordered.find(u => u.toLowerCase().endsWith('.'+ex))).find(Boolean) || ordered[0];
       const media = $('.post-media', art); if (!media) return;
-      const img = $('img', media);
-      if (img){ img.src = proxyUrlIfNeeded(best); img.referrerPolicy = 'no-referrer'; }
-      // Keep as image; do not upgrade to video if a GIF/image is available
+      try { p.file_url = best; p.file_ext = (best.split('.').pop() || '').toLowerCase(); } catch {}
+      let img = $('img', media);
+      if (img){
+        // If we already have a non-thumbnail original shown, keep it
+        try{
+          const cur = img.currentSrc || img.getAttribute('src') || '';
+          const curRaw = cur;
+          if (/realbooru\.com/i.test(curRaw) && curRaw.includes('/images/') && !/thumbnail_/i.test(curRaw)) {
+            return; // don't downgrade an already-upgraded image
+          }
+        }catch{}
+
+        // Replace node to remove any existing error handlers from the initial fallback chain
+        try{
+          const clone = img.cloneNode(true);
+          img.replaceWith(clone);
+          img = clone;
+        }catch{}
+
+        img.referrerPolicy = 'no-referrer';
+        img.decoding = 'async';
+        img.loading = 'lazy';
+
+        // Derive md5/prefix to try canonical originals even if best is a thumbnail link
+        const derive = (s) => {
+          try{
+            if (!s) return null;
+            let m = /\/images\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            if (!m) m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            if (!m) m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            return m ? { prefix: m[1], md5: m[2] } : null;
+          }catch{ return null; }
+        };
+        const info = derive(best) || derive(imgUrls[0]) || null;
+        const directCandidates = [];
+        if (info){
+          for (const ex of order){ directCandidates.push(`https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`); }
+          // Also include thumbnail_ variant as a late fallback (server may 302 to original)
+          directCandidates.push(`https://realbooru.com/images/${info.prefix}thumbnail_${info.md5}.jpg`);
+        }
+        // Ensure we also consider the discovered best URL as a fallback
+        if (!directCandidates.includes(best)) directCandidates.push(best);
+
+        // One-shot proxy fallback will be applied only after direct attempts
+        let idx = 0;
+        let proxiedUsed = false;
+        const next = () => {
+          if (idx >= directCandidates.length){
+            if (!proxiedUsed){
+              proxiedUsed = true;
+              // Try proxied version of the first candidate (or best) as a final fallback
+              const base = directCandidates[0] || best;
+              img.onerror = null;
+              img.src = proxyUrlIfNeeded(base);
+              return;
+            }
+            return;
+          }
+          const cand = directCandidates[idx++];
+          // Try direct first; on error advance to next
+          img.onerror = next;
+          img.src = cand;
+        };
+        img.addEventListener('load', () => {
+          try{
+            const u = img.currentSrc || img.getAttribute('src') || '';
+            const isOriginal = /\/images\//i.test(u) && !/\/thumbnail_/i.test(u);
+            if (isOriginal) { try{ img.dataset.hi = '1'; }catch{}; img.onerror = null; }
+            const sk = $('.media-skel', media); sk && sk.remove();
+          }catch{}
+        }, { once: false });
+        next();
+      }
       return;
     }
 
@@ -589,9 +721,11 @@ async function enrichRealBooruCard(art){
     let m; while ((m = reVid.exec(html))){ const u = m[0]; if (!vidUrls.includes(u)) vidUrls.push(u); }
     if (vidUrls.length){
       vidUrls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
-      p.video_candidates = vidUrls.slice(0,4).map(u => proxyUrlIfNeeded(u));
-      p.file_ext = (vidUrls[0].split('.').pop()||'').toLowerCase();
-      p.file_url = p.video_candidates[0];
+      const direct = vidUrls[0];
+      const proxied = proxyUrlIfNeeded(direct);
+      p.video_candidates = vidUrls.slice(0,4);
+      p.file_ext = (direct.split('.').pop()||'').toLowerCase();
+      p.file_url = direct;
       const media = $('.post-media', art); if (!media) return;
       const img = $('img', media);
       let video = $('video', media);
@@ -600,13 +734,15 @@ async function enrichRealBooruCard(art){
         video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
         video.poster = p.preview_url || p.sample_url || '';
         try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
-        video.src = p.file_url;
+        video.src = direct; // direct first
+        video.onerror = () => { video.onerror = null; video.src = proxied; };
         if (img) img.replaceWith(video); else media.appendChild(video);
         video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
         const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
         vis.observe(video);
       } else {
-        video.src = p.file_url;
+        video.src = direct;
+        video.onerror = () => { video.onerror = null; video.src = proxied; };
       }
       return;
     }

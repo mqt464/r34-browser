@@ -70,10 +70,12 @@ function normalizeTagsFromCsv(titleAttr){
 
 function mapRBThumbToSample(url){
   try{
-    const m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-fA-F0-9]{32})\.jpg$/.exec(url);
+    // Accept jpg/jpeg/png/gif/webp and optional query/hash; case-insensitive
+    const m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-fA-F0-9]{32})\.(?:jpg|jpeg|png|gif|webp)(?:[?#].*)?$/i.exec(url);
     if (!m) return url;
     const prefix = m[1];
     const md5 = m[2];
+    // RB samples are always .jpg under /samples/
     return `https://realbooru.com/samples/${prefix}sample_${md5}.jpg`;
   }catch{ return url; }
 }
@@ -98,7 +100,9 @@ export const API = {
         const img = a.querySelector('img');
         const id = (a.getAttribute('id')||'').replace(/^p/, '');
         const preview = img?.getAttribute('src') || '';
-        const sample = mapRBThumbToSample(preview);
+        const toAbs = (u) => { try { return new URL(u, 'https://realbooru.com').toString(); } catch { return u; } };
+        const previewAbs = toAbs(preview);
+        const sampleAbs = mapRBThumbToSample(previewAbs);
         // Derive original path prefix + md5 to try video originals when available
         let prefix = ''; let md5 = '';
         try{
@@ -115,8 +119,8 @@ export const API = {
         }
         // Only proxy images if explicitly enabled to avoid burning proxy bandwidth
         const useProxyForImages = !!settings.proxyImages && !!settings.corsProxy;
-        const previewUrl = useProxyForImages ? withProxy(preview) : preview;
-        const sampleUrl = useProxyForImages ? withProxy(sample) : sample;
+        const previewUrl = useProxyForImages ? withProxy(previewAbs) : previewAbs;
+        const sampleUrl = useProxyForImages ? withProxy(sampleAbs) : sampleAbs;
         const tagsCsv = img?.getAttribute('title') || '';
         items.push({
           id,

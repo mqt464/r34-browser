@@ -58,7 +58,7 @@ export const session = {
 };
 
 // App version for display in Settings
-export const APP_VERSION = 'v2025.09.19';
+export const APP_VERSION = 'v2025.09.20';
 
 export function setSettings(next){ settings = next; saveLS(LS.settings, settings); }
 export function setFilters(next){ filters = next; saveLS(LS.filters, filters); }
