@@ -1,0 +1,250 @@
+import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250919';
+import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250919';
+import { API, parseTagXML, fetchText } from '../core/api.js?v=20250919';
+import { renderChipsFix, normalizeTag } from './search.js?v=20250919';
+import { applyTheme, applyColumns } from './feed.js?v=20250919';
+
+let els;
+let dataMsgTimer = 0;
+
+export function initSettings(domRefs){
+  els = domRefs;
+  els.settingsClose.addEventListener('click', () => hideSettings());
+  els.settingsOverlay.addEventListener('click', (e) => { if (e.target === els.settingsOverlay) hideSettings(); });
+}
+
+export function showSettings(){
+  renderSettings();
+  els.settingsOverlay.hidden = false;
+  lockScroll();
+}
+export function hideSettings(){
+  els.settingsOverlay.hidden = true;
+  unlockScroll();
+}
+
+export function renderSettings(){
+  els.settingsContainer.innerHTML = '';
+  const tpl = $('#tpl-settings');
+  const node = tpl.content.cloneNode(true);
+  els.settingsContainer.appendChild(node);
+
+  // Source (provider) + CORS proxy controls
+  try{
+    const settingsRoot = els.settingsContainer.querySelector('.settings');
+    if (settingsRoot) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h3>Default Provider</h3>
+        <div class="row fields">
+          <div class="provider-dd" style="flex:1; position:relative">
+            <button id="opt-provider-dd" class="prov-dd" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <img alt="" />
+              <span class="lbl"></span>
+              <span class="caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="prov-menu" role="listbox" hidden>
+              <button class="item" data-prov="rule34" role="option"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
+              <button class="item" data-prov="realbooru" role="option"><img src="icons/RealBooru.png" alt="" /><span>RealBooru</span></button>
+            </div>
+          </div>
+          <label class="stack proxy-wrap" style="flex:2; position:relative">CORS Proxy (optional)
+            <input id="opt-proxy" type="text" placeholder="https://r.jina.ai/http/ or https://cors.isomorphic-git.org/" />
+            <span class="input-spinner" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="fields">
+          <label class="switch">
+            <input id="opt-proxy-images" type="checkbox" />
+            <span class="switch-ui" aria-hidden="true"></span>
+            <span class="label">Use proxy for media</span>
+          </label>
+          <div class="note">Turn off to reduce proxy bandwidth. If images fail to load due to hotlink protection, turn back on.</div>
+        </div>
+        <div class="note">Rule34: no proxy needed. RealBooru: proxy required for search/autocomplete (images usually load direct).</div>
+      `;
+      // Move provider + proxy controls into the API Access card, not a separate card
+      const apiInput = $('#opt-user-id');
+      let apiCard = apiInput;
+      while (apiCard && apiCard.classList && !apiCard.classList.contains('card')) apiCard = apiCard.parentElement;
+      // Build two rows: (1) Default Provider above User ID, (2) CORS Proxy below it
+      // Remove any previous injections
+      apiCard.querySelector('#provider-row')?.remove();
+      apiCard.querySelector('#proxy-row')?.remove();
+
+      const providerRow = document.createElement('div');
+      providerRow.className = 'row fields'; providerRow.id = 'provider-row';
+      providerRow.innerHTML = `
+        <label class="stack" style="flex:1">
+          <span class="label">Default Provider</span>
+          <div class="provider-dd" style="position:relative">
+            <button id="opt-provider-dd" class="prov-dd" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <img alt="" />
+              <span class="lbl"></span>
+              <span class="caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="prov-menu" role="listbox" hidden>
+              <button class="item" data-prov="rule34" role="option"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
+              <button class="item" data-prov="realbooru" role="option"><img src="icons/RealBooru.png" alt="" /><span>Realbooru</span></button>
+            </div>
+          </div>
+        </label>
+      `;
+
+      const proxyRow = document.createElement('div');
+      proxyRow.className = 'row fields'; proxyRow.id = 'proxy-row';
+      proxyRow.innerHTML = `
+        <label class="stack proxy-wrap" style="flex:1; position:relative">
+          <span class="label">CORS Proxy</span>
+          <div class="note">Proxies are only used on sites that require them to fetch media. For instance, Realbooru requires a proxy as media from it needs to be scraped as its API is offline.</div>
+          <div class="input-wrap">
+            <input id="opt-proxy" type="text" placeholder="https://r.jina.ai/http/ or https://cors.isomorphic-git.org/" />
+            <span class="input-spinner" aria-hidden="true"></span>
+          </div>
+          <label class="switch" style="margin-top:8px">
+            <input id="opt-proxy-images" type="checkbox" />
+            <span class="switch-ui" aria-hidden="true"></span>
+            <span class="label">Use proxy for media</span>
+          </label>
+        </label>
+      `;
+
+      const credsRow = apiCard.querySelector('.row.fields');
+      if (credsRow){ apiCard.insertBefore(providerRow, credsRow); apiCard.insertBefore(proxyRow, credsRow); }
+      else { apiCard.appendChild(providerRow); apiCard.appendChild(proxyRow); }
+
+      // Toggle is now part of the proxy row directly under the textbox
+
+      const provBtn = providerRow.querySelector('#opt-provider-dd');
+      const provMenu = providerRow.querySelector('.prov-menu');
+      const provWrap = providerRow.querySelector('.provider-dd');
+      const provImg = provBtn?.querySelector('img');
+      const provLbl = provBtn?.querySelector('.lbl');
+      const prox = proxyRow.querySelector('#opt-proxy');
+      const proxyWrap = proxyRow.querySelector('.proxy-wrap');
+      if (prox) prox.value = settings.corsProxy || '';
+      const proxyImages = apiCard.querySelector('#opt-proxy-images');
+      if (proxyImages) proxyImages.checked = !!settings.proxyImages;
+    // Custom full-width dropdown (icon + name + caret)
+    const iconFor = (p) => p==='realbooru' ? 'icons/RealBooru.png' : 'icons/Rule34.png';
+    const labelFor = (p) => p==='realbooru' ? 'RealBooru' : 'Rule34';
+    const applyProvDD = () => { const p = settings.provider||'rule34'; if (provImg) provImg.src = iconFor(p); if (provLbl) provLbl.textContent = labelFor(p); };
+    applyProvDD();
+    let provDocHandler = null;
+    const openProvMenu = () => {
+      if (!provMenu) return; provMenu.hidden = false; provBtn?.setAttribute('aria-expanded','true');
+      provDocHandler = (e) => {
+        if (provWrap && (provWrap.contains(e.target))) return;
+        closeProvMenu();
+      };
+      document.addEventListener('click', provDocHandler);
+    };
+    const closeProvMenu = () => {
+      if (!provMenu) return; provMenu.hidden = true; provBtn?.setAttribute('aria-expanded','false');
+      if (provDocHandler){ document.removeEventListener('click', provDocHandler); provDocHandler = null; }
+    };
+      provBtn?.addEventListener('click', (e)=>{ e.stopPropagation(); if (provMenu?.hidden===false) closeProvMenu(); else openProvMenu(); });
+    provMenu?.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ const p = it.getAttribute('data-prov')||'rule34'; settings.provider = p; saveLS(LS.settings, settings); applyProvDD(); closeProvMenu(); }));
+
+    // Proxy test with spinner + subtle outline
+    const testProxy = debounce(async ()=>{
+      const val = (prox?.value||'').trim();
+      if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{} return; }
+      // Persist proxy and announce change immediately so requests start using it without waiting for test
+      settings.corsProxy = val; saveLS(LS.settings, settings);
+      try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
+      proxyWrap?.classList.add('testing'); prox?.classList.remove('ok','err');
+      try{
+        // RealBooru HTML endpoint requires proxy; this verifies the proxy format works
+        await fetchText('https://realbooru.com/index.php?page=autocomplete&term=mi', /*allowProxy*/ true);
+        proxyWrap?.classList.remove('testing'); prox?.classList.add('ok');
+        // Successful test already announced; nothing further needed
+      }catch{ proxyWrap?.classList.remove('testing'); prox?.classList.add('err'); }
+    }, 600);
+    prox?.addEventListener('input', testProxy);
+    prox?.addEventListener('change', testProxy);
+    proxyImages?.addEventListener('change', (e)=>{ settings.proxyImages = !!e.target.checked; saveLS(LS.settings, settings); });
+
+      // Auto-test initial proxy value
+      if ((prox?.value||'').trim()) { proxyWrap?.classList.add('testing'); testProxy(); }
+    }
+  }catch{}
+
+  $('#opt-columns').value = String(settings.columns);
+  $('#opt-columns-val').textContent = String(settings.columns);
+  $('#opt-columns').addEventListener('input', (e)=>{
+    settings.columns = Number(e.target.value);
+    saveLS(LS.settings, settings);
+    $('#opt-columns-val').textContent = String(settings.columns);
+    applyColumns();
+  });
+
+  $('#opt-theme').value = settings.theme;
+  $('#opt-theme').addEventListener('change', (e)=>{
+    settings.theme = e.target.value; saveLS(LS.settings, settings); applyTheme();
+  });
+  $('#opt-accent').value = settings.accent || '#7c3aed';
+  $('#opt-accent').addEventListener('input', (e)=>{ settings.accent = e.target.value; saveLS(LS.settings, settings); applyTheme(); });
+
+  // Filters
+  $('#f-ai').checked = !!filters.excludeAI;
+  $('#f-scat').checked = !!filters.excludeScat;
+  $('#f-shota').checked = !!filters.excludeShota;
+  $('#f-ai').addEventListener('change', (e)=>{ filters.excludeAI = !!e.target.checked; saveLS(LS.filters, filters); });
+  $('#f-scat').addEventListener('change', (e)=>{ filters.excludeScat = !!e.target.checked; saveLS(LS.filters, filters); });
+  $('#f-shota').addEventListener('change', (e)=>{ filters.excludeShota = !!e.target.checked; saveLS(LS.filters, filters); });
+
+  const setCode = (el, arr) => { if (!el) return; el.innerHTML = (arr||[]).map(t => `<span class="code-tag">-${escapeHtml(t)}</span>`).join(' '); };
+  setCode($('#f-ai-tags'), ['ai_generated','stable_diffusion','novelai','midjourney']);
+  setCode($('#f-scat-tags'), ['scat','coprophagia','feces']);
+  setCode($('#f-shota-tags'), ['loli','shota']);
+
+  // Custom exclusions
+  const customInput = $('#f-custom-input');
+  const customAdd = $('#f-custom-add');
+  const customList = $('#f-custom-list');
+  function renderCustom(){
+    const arr = Array.isArray(filters.customExclude) ? filters.customExclude : (filters.customExclude = []);
+    customList.innerHTML = arr.length ? arr.map(t => `<span class="code-tag">-${escapeHtml(t)}<span class="x" title="Remove" data-t="${escapeHtml(t)}">?</span></span>`).join(' ') : '<span class="note">No custom exclusions</span>';
+    customList.querySelectorAll('.code-tag .x').forEach(x => x.addEventListener('click', () => {
+      const t = x.getAttribute('data-t');
+      filters.customExclude = filters.customExclude.filter(v => v !== t);
+      saveLS(LS.filters, filters);
+      renderCustom();
+    }));
+  }
+  renderCustom();
+  customAdd.addEventListener('click', () => {
+    const v = normalizeTag(customInput.value||''); if (!v) return;
+    const tag = v.startsWith('-') ? v.slice(1) : v;
+    const arr = Array.isArray(filters.customExclude) ? filters.customExclude : (filters.customExclude = []);
+    if (!arr.includes(tag)) arr.push(tag);
+    saveLS(LS.filters, filters);
+    customInput.value = '';
+    renderCustom();
+  });
+
+  // Groups
+  const groupsWrap = $('#groups');
+  const renderGroups = () => {
+    groupsWrap.innerHTML = '';
+    for (const g of groups){ groupsWrap.appendChild(groupEditor(g)); }
+  };
+  renderGroups();
+  $('#group-add').addEventListener('click', () => { groups.push({ id: uid(), name: 'New group', provider: settings.provider||'rule34', include: [], exclude: [] }); saveLS(LS.groups, groups); renderGroups(); });
+
+  // Data
+  $('#data-copy').addEventListener('click', onCopy);
+  $('#data-export').addEventListener('click', onExport);
+  $('#data-import').addEventListener('change', onImport);
+  $('#data-reset').addEventListener('click', onReset);
+  renderAnalytics();
+
+  // Version footer
+  try{
+    const root = els.settingsContainer.querySelector('.settings');
+    if (root){
+      const ver = document.createElement('div');
+      ver.className = 'note';
+      ver.style.textAlign = 'center';

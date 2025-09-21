@@ -145,7 +145,7 @@ export function renderSettings(){
       if (provDocHandler){ document.removeEventListener('click', provDocHandler); provDocHandler = null; }
     };
       provBtn?.addEventListener('click', (e)=>{ e.stopPropagation(); if (provMenu?.hidden===false) closeProvMenu(); else openProvMenu(); });
-    provMenu?.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ const p = it.getAttribute('data-prov')||'rule34'; settings.provider = p; saveLS(LS.settings, settings); applyProvDD(); closeProvMenu(); }));
+    provMenu?.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ const p = it.getAttribute('data-prov')||'rule34'; settings.provider = p; saveLS(LS.settings, settings); applyProvDD(); closeProvMenu(); try{ window.dispatchEvent(new CustomEvent('app:provider-changed')); }catch{} }));
 
     // Proxy test with spinner + subtle outline
     const testProxy = debounce(async ()=>{

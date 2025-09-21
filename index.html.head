@@ -50,23 +50,6 @@
           <div id="autocomplete" class="autocomplete" hidden></div>
         </div>
 
-        <div class="search-options" aria-label="Search options">
-          <label>
-            Sort
-            <select id="search-sort">
-              <option value="default">Default</option>
-              <option value="new">Newest</option>
-              <option value="old">Oldest</option>
-              <option value="score_desc">Score (high→low)</option>
-              <option value="score_asc">Score (low→high)</option>
-              <option value="random">Random</option>
-            </select>
-          </label>
-          <label>
-            Min score
-            <input id="search-min-score" type="number" inputmode="numeric" min="0" step="1" placeholder="0" />
-          </label>
-        </div>
         <div id="tag-chips" class="chips small" aria-live="polite"></div>
 
         <div id="scroll-progress" class="scroll-progress"><div></div></div>
@@ -215,36 +198,3 @@
               <label class="stack" style="flex:2">API Key
                 <input id="opt-api-key" type="text" placeholder="Your Rule34 API key" />
               </label>
-            </div>
-            
-          </div>
-        </section>
-      </template>
-
-      <template id="tpl-group">
-        <div class="group collapsed">
-          <div class="group-head">
-            <div class="group-title">
-              <div class="group-name-row">
-                <button class="group-toggle" aria-expanded="false" title="Expand">▸</button>
-                <input class="group-name" placeholder="Group name" />
-                <button class="btn group-del" title="Delete group">Delete</button>
-              </div>
-              <div class="group-summary note"></div>
-            </div>
-          </div>
-          <div class="group-tags">
-            <div class="searchbox small">
-              <input class="group-search" type="text" placeholder="Add tags to group…" />
-              <button class="btn group-add-tag">Add</button>
-              <div class="autocomplete" hidden></div>
-            </div>
-            <div class="chips"></div>
-          </div>
-        </div>
-      </template>
-    </div>
-
-    <script type="module" src="js/main.js?v=20250919"></script>
-  </body>
-  </html>

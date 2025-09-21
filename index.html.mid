@@ -1,0 +1,33 @@
+            </div>
+            
+          </div>
+        </section>
+      </template>
+
+      <template id="tpl-group">
+        <div class="group collapsed">
+          <div class="group-head">
+            <div class="group-title">
+              <div class="group-name-row">
+                <button class="group-toggle" aria-expanded="false" title="Expand">▸</button>
+                <input class="group-name" placeholder="Group name" />
+                <button class="btn group-del" title="Delete group">Delete</button>
+              </div>
+              <div class="group-summary note"></div>
+            </div>
+          </div>
+          <div class="group-tags">
+            <div class="searchbox small">
+              <input class="group-search" type="text" placeholder="Add tags to group…" />
+              <button class="btn group-add-tag">Add</button>
+              <div class="autocomplete" hidden></div>
+            </div>
+            <div class="chips"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <script type="module" src="js/main.js?v=20250919"></script>
+  </body>
+  </html>

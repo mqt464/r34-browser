@@ -2,7 +2,7 @@ import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250919';
 import { API } from '../core/api.js?v=20250919';
 import { settings, session } from '../core/state.js?v=20250919';
 
-export const searchState = { include: [], exclude: [], sort: 'default', minScore: 0 };
+export const searchState = { include: [], exclude: [] };
 
 let els;
 let onPerformSearchCb = () => {};
@@ -26,28 +26,6 @@ export function initSearch(domRefs, { onPerformSearch } = {}){
   els.searchInput.addEventListener('input', debounce(onAutocomplete, 150));
   els.searchGo.addEventListener('click', () => performSearch());
   document.addEventListener('click', (e) => { if (!els.autocomplete.contains(e.target) && e.target !== els.searchInput) els.autocomplete.hidden = true; });
-
-  // Search options (sort + min score)
-  try{
-    const sortSel = $('#search-sort');
-    const minScoreInp = $('#search-min-score');
-    if (sortSel){
-      sortSel.value = searchState.sort || 'default';
-      sortSel.addEventListener('change', () => {
-        searchState.sort = sortSel.value || 'default';
-        performSearch();
-      });
-    }
-    if (minScoreInp){
-      const applyMin = () => {
-        const v = Number(minScoreInp.value);
-        searchState.minScore = Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
-        // Do not auto-trigger search on every keypress; wait for change/enter
-      };
-      minScoreInp.addEventListener('input', applyMin);
-      minScoreInp.addEventListener('change', () => { applyMin(); performSearch(); });
-    }
-  }catch{}
 
   updateSearchChips();
 }

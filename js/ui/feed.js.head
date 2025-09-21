@@ -1,0 +1,250 @@
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250919';
+import { API, fetchText } from '../core/api.js?v=20250919';
+import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250919';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250919';
+
+let els;
+
+let activeTab = null;
+let searchPid = 0; // pagination
+let loading = false;
+let reachedEnd = false;
+let direction = 1; // 1 down, -1 up
+let lastScrollY = 0;
+let seen = new Set(); // dedupe posts in feed
+// Scroll deltas to debounce slight up/down jiggles
+let upDelta = 0;
+let downDelta = 0;
+let rbEnrichIO = null;
+
+// Limit concurrent RealBooru enrich tasks to avoid bursts
+const ENRICH_MAX = 4;
+let enrichInFlight = 0;
+const enrichQueue = [];
+function withEnrichLimit(fn){
+  const run = () => {
+    if (enrichInFlight >= ENRICH_MAX) return;
+    const task = enrichQueue.shift();
+    if (!task) return;
+    enrichInFlight++;
+    Promise.resolve(task())
+      .catch(()=>{})
+      .finally(()=>{
+        enrichInFlight--;
+        run();
+      });
+  };
+  enrichQueue.push(fn);
+  run();
+}
+
+// Home aggregator state
+let home = {
+  round: 0,
+  pids: {}, // groupId -> pid number
+  exhausted: {}, // groupId -> bool
+};
+
+export function initFeed(domRefs){
+  els = domRefs;
+
+  // Tabs handled in main via switchTab
+
+  // Infinite scroll
+  const io = new IntersectionObserver(async (entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting && !loading && !reachedEnd) {
+        await loadNext();
+      }
+    }
+  }, { rootMargin: '800px 0px 800px 0px' });
+  io.observe(els.sentinel);
+
+  // Scroll UI
+  window.addEventListener('scroll', onScroll, { passive: true });
+  els.toTop.addEventListener('click', () => window.scrollTo({ top:0, behavior:'smooth' }));
+
+  // Keep tab underline positioned on resize
+  window.addEventListener('resize', () => updateTabUnderline());
+
+  // Overlay: tags
+  els.tagsClose.addEventListener('click', () => hideTagsOverlay());
+  els.tagsOverlay.addEventListener('click', (e) => { if (e.target === els.tagsOverlay) hideTagsOverlay(); });
+
+  // Initial layout
+  applyTheme();
+  applyColumns();
+  // Position underline for initial tab after main calls switchTab
+  setTimeout(() => updateTabUnderline(), 0);
+
+  // Observer to enrich RealBooru cards with actual media when visible
+  try{
+    rbEnrichIO = new IntersectionObserver((entries) => {
+      for (const e of entries){
+        if (e.isIntersecting){
+          const el = e.target; rbEnrichIO.unobserve(el);
+          withEnrichLimit(() => enrichRealBooruCard(el));
+        }
+      }
+    }, { rootMargin: '200px' });
+  }catch{}
+}
+
+export function getActiveTab(){ return activeTab; }
+
+export function applyTheme(){
+  const theme = settings.theme;
+  if (theme === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  document.documentElement.style.setProperty('--accent', settings.accent);
+}
+export function applyColumns(){
+  const cols = clamp(Number(settings.columns||1),1,4);
+  els.feed.dataset.columns = String(cols);
+  els.feed.classList.toggle('single', cols === 1);
+  els.feed.classList.toggle('masonry', cols > 1);
+}
+
+export function switchTab(name){
+  if (activeTab === name) return;
+  activeTab = name;
+  els.tabs.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  updateTabUnderline();
+  // Close overlays on tab change
+  hideTagsOverlay();
+
+  if (name === 'favorites') {
+    clearFeed();
+    renderFavorites();
+  } else if (name === 'home') {
+    clearFeed();
+    resetHome();
+    loadNext().catch(()=>{});
+  } else if (name === 'search') {
+    clearFeed();
+    searchPid = 0; reachedEnd = false; seen.clear();
+    const st = getSearchState();
+    if ((st.include||[]).length || (st.exclude||[]).length) loadNext();
+    else renderEmptyState('Add tags above to start a search.');
+  }
+}
+
+function updateTabUnderline(){
+  try{
+    const bar = els?.tabbar; if (!bar) return;
+    const btn = Array.from(els?.tabs||[]).find(b => b.classList.contains('active'));
+    if (!btn) return;
+    const br = bar.getBoundingClientRect();
+    const ar = btn.getBoundingClientRect();
+    const left = Math.max(0, ar.left - br.left);
+    const width = Math.max(0, ar.width);
+    bar.style.setProperty('--tab-underline-x', left + 'px');
+    bar.style.setProperty('--tab-underline-w', width + 'px');
+  }catch{}
+}
+
+export function resetSearchPagination(){ searchPid = 0; reachedEnd = false; seen.clear(); }
+
+export function clearFeed(){
+  els.feed.innerHTML = '';
+  els.feedEnd.hidden = true;
+  reachedEnd = false;
+  seen.clear();
+}
+
+function renderEmptyState(text){
+  const div = document.createElement('div');
+  div.className = 'feed-end';
+  div.textContent = text;
+  els.feed.appendChild(div);
+}
+
+function resetHome(){
+  home.round = 0; home.pids = {}; home.exhausted = {};
+  if (!groups.length) {
+    renderEmptyState('No tag groups yet. Add some in Settings.');
+    reachedEnd = true;
+  }
+}
+
+export async function loadNext(){
+  loading = true; showSkeletons();
+  try {
+    if (activeTab === 'search') {
+      const st = getSearchState();
+      const tags = composeTags(st.include||[], st.exclude||[]);
+      const data = await API.posts({ tags, limit: settings.perPage, pid: searchPid, provider: (session.providerOverride || settings.provider || 'rule34') });
+      const posts = sanitizePosts(data);
+      const added = renderPosts(posts);
+      if (added === 0) {
+        searchPid++;
+        const d2 = await API.posts({ tags, limit: settings.perPage, pid: searchPid, provider: (session.providerOverride || settings.provider || 'rule34') });
+        const p2 = sanitizePosts(d2);
+        const a2 = renderPosts(p2);
+        if (a2 === 0) {
+          if (Array.isArray(p2) && p2.length === 0) {
+            reachedEnd = true;
+            if (!els.feed.querySelector('.feed-end.msg')){
+              const m = document.createElement('div');
+              m.className = 'feed-end msg';
+              m.textContent = 'No results for these tags.';
+              els.feed.appendChild(m);
+            }
+          }
+        } else {
+          searchPid++;
+        }
+      } else {
+        searchPid++;
+      }
+    } else if (activeTab === 'home') {
+      if (!groups.length) { reachedEnd = true; return; }
+      const perGroup = Math.max(2, Math.ceil(settings.perPage / Math.max(1, groups.length)));
+      const buckets = [];
+      let anyFetched = false;
+      for (const g of groups){
+        if (home.exhausted[g.id]) continue;
+        const pid = home.pids[g.id] || 0;
+        const tags = composeTags(g.include||[], g.exclude||[]);
+        try{
+          const data = await API.posts({ tags, limit: perGroup, pid, provider: g.provider || 'rule34' });
+          const posts = sanitizePosts(data);
+          if (!Array.isArray(posts) || posts.length === 0){ home.exhausted[g.id] = true; continue; }
+          anyFetched = true;
+          home.pids[g.id] = pid + 1;
+          const arr = posts.slice();
+          for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+          buckets.push(arr);
+        }catch{}
+      }
+      const merged = [];
+      let idx = 0;
+      while (merged.length < settings.perPage){
+        let pushed = false;
+        for (const b of buckets){
+          if (b[idx]){ merged.push(b[idx]); pushed = true; if (merged.length >= settings.perPage) break; }
+        }
+        if (!pushed) break;
+        idx++;
+      }
+      const added = renderPosts(merged);
+      if (!anyFetched || added === 0){ reachedEnd = true; }
+    } else if (activeTab === 'favorites') {
+      // no-op; favorites render in switchTab
+    }
+  } catch (e) {
+    console.warn('Load error', e);
+    if (!els.feed.querySelector('.error')){
+      const d = document.createElement('div');
+      d.className = 'feed-end error';
+      const msg = String(e?.message||'').toLowerCase();
+      if (msg.includes('missing authentication')) {
+        d.innerHTML = 'Missing authentication. Enter your Rule34 user ID and API key in Settings \u001a API.';
+      } else {
+        d.innerHTML = 'Could not load posts. Set a CORS proxy and/or API credentials in Settings.';
+      }
+      els.feed.appendChild(d);
+    }
+    reachedEnd = true;
+  } finally {
+    hideSkeletons();

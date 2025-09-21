@@ -10,6 +10,7 @@
   --header-btn-w: 110px;
   /* Square size for the header settings button (touch friendly) */
   --header-btn-size: 44px;
+  --search-h: 40px; /* slightly shorter search bar/buttons */
 }
 
 @media (prefers-color-scheme: light){
@@ -82,7 +83,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 
 .searchbox{display:flex; align-items:center; gap:8px; position:relative}
 .provider-btn{
-  width: var(--header-btn-size); height: var(--header-btn-size);
+  width: var(--search-h); height: var(--search-h);
   border-radius: 10px; border:1px solid var(--border);
   background: var(--bg-elev); color: var(--text); font-weight:800;
   display:inline-flex; align-items:center; justify-content:center;
@@ -224,17 +225,62 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .chip:active{ transform: scale(.98); }
 .chip:not(.excluded):hover{ box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 18%, transparent) inset; }
 
-/* Normalize control radii */
-.searchbox input{ border-radius:10px; }
+/* Search bar sizing + matching button height */
+.searchbox input{
+  height: var(--search-h);
+  border:1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 12px;
+  border-radius:10px;
+}
+.searchbox .btn{
+  height: var(--search-h);
+  border:1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+  padding: 0 12px;
+  border-radius:10px;
+  font-weight:700;
+}
+.searchbox .btn:hover{ background: color-mix(in oklab, var(--accent) 12%, var(--bg-elev)); }
 
-.main{max-width: 960px; margin: 0 auto; padding: 8px 8px calc(64px + env(safe-area-inset-bottom))}
+/* Optional search options row under the search bar */
+.search-options{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px }
+.search-options label{ display:flex; align-items:center; gap:6px; font-size:.9rem; color: var(--muted); flex: 0 0 auto }
+.search-options select,
+.search-options input[type="number"]{
+  height: 32px; min-width: 140px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 10px;
+}
+.search-options select:hover,
+.search-options input[type="number"]:hover{ background: color-mix(in oklab, var(--accent) 6%, var(--bg)) }
+.search-options select:focus,
+.search-options input[type="number"]:focus{ outline:none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 25%, transparent) }
+@media (max-width: 640px){
+  .search-options label{ flex: 1 1 100%; }
+  .search-options select,
+  .search-options input[type="number"]{ width: 100%; min-width: 0; }
+}
+
+.main{max-width: none; width: 100%; margin: 0; padding: 8px 8px calc(64px + env(safe-area-inset-bottom))}
 
 .feed{display:block}
+/* Single-column feed keeps cards intact */
 .feed.single .post-card{break-inside: avoid}
-.feed.masonry{column-gap: 12px}
-.feed.masonry[data-columns="2"]{column-count:2}
-.feed.masonry[data-columns="3"]{column-count:3}
-.feed.masonry[data-columns="4"]{column-count:4}
+
+/* Masonry feed: switch to grid + column wrappers for stability */
+.feed.masonry{ display:grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 12px; align-items: start; }
+.feed.masonry .col{ display:flex; flex-direction: column; gap: 12px; min-width:0; }
+.feed.masonry .post-card{ break-inside: avoid; margin: 0; }
+/* Sync CSS var with dataset for convenience */
+.feed.masonry[data-columns="2"]{ --cols: 2; }
+.feed.masonry[data-columns="3"]{ --cols: 3; }
+.feed.masonry[data-columns="4"]{ --cols: 4; }
 
 /* Back to top (FAB) */
 .to-top{
@@ -300,7 +346,10 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .post-card{display:block; margin: 10px 0; background: var(--bg-elev); border:1px solid var(--border); border-radius:14px; overflow:hidden}
 .post-media{position:relative; background: #0a0a0c}
 .post-media .ratio{width:100%; display:block}
-.post-media img,.post-media video{width:100%; height:auto; display:block}
+.post-media img,.post-media video{ position:absolute; inset:0; width:100%; height:100%; display:block; object-fit: contain; }
+/* For RealBooru posts, fill the media box to edges (may crop) */
+.post-card.media-cover .post-media img,
+.post-card.media-cover .post-media video{ object-fit: cover; }
 .post-media .media-skel{position:absolute; inset:0; background:#1a1a20; overflow:hidden}
 .post-media .media-skel::after{content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite}
 .post-media .like-heart{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; font-size:clamp(56px, 8vw, 100px); color:var(--accent); transform: scale(.6); filter: drop-shadow(0 8px 24px color-mix(in oklab, var(--accent) 45%, transparent))}
@@ -360,8 +409,8 @@ a.icon-btn:hover, a.icon-btn:active, a.icon-btn:focus{ text-decoration:none }
 }
 .fav.active{color: var(--accent)}
 
-.skeleton{position:relative; overflow:hidden; background: #1a1a20; min-height: 180px}
-.skeleton::after{content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite}
+.post-card.skeleton{position:relative; overflow:hidden; background: #1a1a20; min-height: 180px}
+.post-card.skeleton::after{content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, #ffffff12, transparent); animation: shimmer 1.2s infinite}
 @keyframes shimmer{0%{transform: translateX(-100%)}100%{transform: translateX(100%)}}
 
 .feed-end{ text-align:center; color: var(--muted); padding: 16px 8px}

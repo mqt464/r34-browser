@@ -4,6 +4,7 @@ import { LS, saveLS, settings, filters, groups, favorites, favSet, session } fro
 import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250919';
 
 let els;
+let masonryCols = [];
 
 let activeTab = null;
 let searchPid = 0; // pagination
@@ -103,6 +104,8 @@ export function applyColumns(){
   els.feed.dataset.columns = String(cols);
   els.feed.classList.toggle('single', cols === 1);
   els.feed.classList.toggle('masonry', cols > 1);
+  try{ els.feed.style.setProperty('--cols', String(cols)); }catch{}
+  ensureMasonryStructure();
 }
 
 export function switchTab(name){
@@ -147,6 +150,7 @@ export function resetSearchPagination(){ searchPid = 0; reachedEnd = false; seen
 
 export function clearFeed(){
   els.feed.innerHTML = '';
+  masonryCols = [];
   els.feedEnd.hidden = true;
   reachedEnd = false;
   seen.clear();
@@ -172,7 +176,30 @@ export async function loadNext(){
   try {
     if (activeTab === 'search') {
       const st = getSearchState();
-      const tags = composeTags(st.include||[], st.exclude||[]);
+      // Build include tags with optional sort and score filters
+      const inc = Array.isArray(st.include) ? st.include.slice() : [];
+      const exc = Array.isArray(st.exclude) ? st.exclude.slice() : [];
+      // Min score filter
+      try{
+        const min = Number(st.minScore||0);
+        if (Number.isFinite(min) && min > 0) inc.push(`score:>=${Math.floor(min)}`);
+      }catch{}
+      // Provider-specific sort tokens
+      try{
+        const s = String(st.sort||'default');
+        const prov = String((session?.providerOverride) || (settings?.provider) || 'rule34');
+        if (prov === 'rule34'){
+          if (s === 'new') inc.push('sort:id');
+          else if (s === 'old') inc.push('sort:id_asc');
+          else if (s === 'score_desc') inc.push('sort:score');
+          else if (s === 'score_asc') inc.push('sort:score_asc');
+          else if (s === 'random') inc.push('sort:random');
+        } else {
+          // Conservative: only pass random to other providers (e.g., RealBooru)
+          if (s === 'random') inc.push('sort:random');
+        }
+      }catch{}
+      const tags = composeTags(inc, exc);
       const data = await API.posts({ tags, limit: settings.perPage, pid: searchPid, provider: (session.providerOverride || settings.provider || 'rule34') });
       const posts = sanitizePosts(data);
       const added = renderPosts(posts);
@@ -295,14 +322,18 @@ function sanitizePosts(data){
 }
 
 function showSkeletons(count = Math.max(4, Math.min(12, settings.perPage/2))){
-  const frag = document.createDocumentFragment();
+  const useMasonry = isMasonry();
+  const parentTargets = useMasonry ? (masonryCols.length ? masonryCols : [els.feed]) : [els.feed];
   for (let i=0;i<count;i++){
-    const card = document.createElement('article');
-    card.className = 'post-card skeleton';
-    card.style.height = (160 + (i%5)*20) + 'px';
-    frag.appendChild(card);
+    const art = document.createElement('article');
+    art.className = 'post-card skeleton';
+    // Use aspect-ratio skeletons to avoid reflow once content arrives
+    const arW = [1, 4, 3, 16][i % 4];
+    const arH = [1, 5, 4, 9][i % 4];
+    art.innerHTML = `<div class="post-media" style="aspect-ratio: ${arW} / ${arH}"><div class="media-skel"></div></div>`;
+    const target = parentTargets[i % parentTargets.length];
+    target.appendChild(art);
   }
-  els.feed.appendChild(frag);
 }
 function hideSkeletons(){
   $$('.post-card.skeleton', els.feed).forEach(n => n.remove());
@@ -310,15 +341,16 @@ function hideSkeletons(){
 
 function renderPosts(posts){
   if (!Array.isArray(posts) || !posts.length) return 0;
-  const frag = document.createDocumentFragment();
+  // Remove skeletons before inserting real content to minimize layout thrash
+  hideSkeletons();
   let added = 0;
   for (const p of posts){
     if (seen.has(p.id)) continue;
     seen.add(p.id);
-    frag.appendChild(postCard(p));
+    const card = postCard(p);
+    appendCard(card);
     added++;
   }
-  els.feed.appendChild(frag);
   return added;
 }
 
@@ -329,8 +361,10 @@ function postCard(p){
   art.className = 'post-card';
   art.dataset.id = p.id;
   art.__post = p;
+  try{ if (isRealBooruPost(p)) art.classList.add('media-cover'); }catch{}
+  const mediaStyle = (Number(p.width)>0 && Number(p.height)>0) ? `aspect-ratio: ${Number(p.width)} / ${Number(p.height)}` : 'aspect-ratio: 1 / 1';
   art.innerHTML = `
-      <div class="post-media" data-id="${p.id}">
+      <div class="post-media" data-id="${p.id}" style="${mediaStyle}">
         <div class="like-heart">?</div>
         ${isVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls crossorigin="anonymous" poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
                    : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
@@ -374,6 +408,13 @@ function postCard(p){
     dlLink.target = '_blank';
     dlLink.rel = 'noopener noreferrer';
     if (leftBox) leftBox.appendChild(dlLink);
+    try { updateDownloadLink(art, p); } catch {}
+    dlLink.addEventListener('click', async (e) => {
+      try {
+        const handled = await handleDownload(art, p);
+        if (handled) { e.preventDefault(); e.stopPropagation(); }
+      } catch {}
+    });
   }
   if (tagsBtn) { tagsBtn.textContent = 'View tags'; if (rightBox) rightBox.appendChild(tagsBtn); }
 
@@ -431,22 +472,40 @@ function postCard(p){
     const setVideoSrc = () => {
       if (Array.isArray(p.video_candidates) && p.video_candidates.length){
         video.src = p.video_candidates[0];
+        try { p.file_url = p.video_candidates[0]; p.file_ext = (p.file_url.split('.').pop()||'').toLowerCase(); updateDownloadLink(art, p); } catch {}
         return;
       }
       if (p.file_ext === 'mp4' || p.file_ext === 'webm'){
         video.src = p.file_url;
+        try { updateDownloadLink(art, p); } catch {}
       }
     };
 
     setVideoSrc();
     let vcIdx = 0;
+    let vidTriedWithRef = false;
     video.addEventListener('loadeddata', () => { skel?.remove(); }, { once: true });
     video.addEventListener('error', () => {
       // Try next candidate or fallback to image
+      if (!vidTriedWithRef){
+        vidTriedWithRef = true;
+        try { video.setAttribute('referrerpolicy','origin-when-cross-origin'); } catch {}
+        // Reattempt current source
+        const cur = video.currentSrc || video.src;
+        video.src = '';
+        setTimeout(()=>{ video.src = cur; }, 0);
+        return;
+      }
       if (Array.isArray(p.video_candidates) && vcIdx < p.video_candidates.length - 1){
         vcIdx++;
         video.src = p.video_candidates[vcIdx];
       } else {
+        // One last attempt: try proxied URL if media proxy is enabled
+        try{
+          const base = (video.currentSrc || video.src || p.file_url || '').toString();
+          const prox = proxyUrlIfNeeded(base);
+          if (prox && prox !== base){ video.src = prox; return; }
+        }catch{}
         const img = document.createElement('img');
         img.loading = 'lazy';
         img.referrerPolicy = 'no-referrer';
@@ -468,11 +527,11 @@ function postCard(p){
     vis.observe(video);
   }
 
-  // If RealBooru item and not already a video, schedule enrichment when visible
+  // If RealBooru item, schedule enrichment when visible (handles videos and images)
   try{
     const rbHint = [p?.file_url||'', p?.preview_url||'', p?.sample_url||'', p?.source||''].join(' ');
     const isRBPost = /realbooru\.com/i.test(rbHint);
-    if (!isVideo && isRBPost && rbEnrichIO){
+    if (isRBPost && rbEnrichIO){
       rbEnrichIO.observe(art);
     }
   }catch{}
@@ -534,12 +593,14 @@ function postCard(p){
       imgEl.setAttribute('referrerpolicy','no-referrer');
       let idx = 0;
       let triedWithRef = false;
+      const TIMEOUT_MS = isTouch ? 18000 : 12000;
       const tryNext = () => {
         if (idx >= candidates.length){
           if (!triedWithRef){
             // Second pass: allow referer
             triedWithRef = true;
-            imgEl.removeAttribute('referrerpolicy');
+            // Explicitly set a permissive referrer policy to override global meta
+            try { imgEl.setAttribute('referrerpolicy','origin-when-cross-origin'); } catch {}
             idx = 0;
           } else {
             // Exhausted all options: stop spinner and leave current image as-is
@@ -553,13 +614,14 @@ function postCard(p){
         const rp = imgEl.getAttribute('referrerpolicy') || '';
         if (rp) try{ test.referrerPolicy = rp; }catch{}
         let done = false;
-        const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, 12000);
+        const to = setTimeout(() => { if (done) return; done = true; tryNext(); }, TIMEOUT_MS);
         test.onload = () => {
           if (done) return; done = true; clearTimeout(to);
           // If we just loaded a non-thumbnail original, stop any further downgrade fallback
           try{
             const isOriginal = /\/images\//i.test(cand) && !/\/thumbnail_/i.test(cand);
             if (isOriginal) { imgEl.removeEventListener('error', onErr); try{ imgEl.dataset.hi = '1'; }catch{} }
+            try { p.file_url = cand; p.file_ext = (cand.split('.').pop()||'').toLowerCase(); updateDownloadLink(art, p); } catch {}
           }catch{}
           imgEl.src = cand;
         };
@@ -592,6 +654,157 @@ function proxyUrlIfNeeded(url){
     if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
     return p + url;
   }catch{ return url; }
+}
+
+function isRealBooruPost(p){
+  try{
+    const hint = [p?.file_url||'', p?.preview_url||'', p?.sample_url||'', p?.source||''].join(' ');
+    return /realbooru\.com/i.test(hint);
+  }catch{ return false; }
+}
+
+function deriveRBInfo(str){
+  try{
+    if (!str) return null;
+    let m = /\/images\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(str);
+    if (!m) m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(str);
+    if (!m) m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(str);
+    return m ? { prefix: m[1], md5: m[2] } : null;
+  }catch{ return null; }
+}
+
+function computeDownloadUrl(p){
+  try{
+    // Prefer explicit video URL when present
+    const ext = String(p?.file_ext||'').toLowerCase();
+    if (['mp4','webm'].includes(ext) && p?.file_url) return p.file_url;
+
+    if (isRealBooruPost(p)){
+      const info = deriveRBInfo(p?.file_url||'') || deriveRBInfo(p?.sample_url||'') || deriveRBInfo(p?.preview_url||'') || deriveRBInfo(p?.source||'');
+      if (info){
+        const order = ['gif','png','jpg','jpeg','webp'];
+        const start = order.includes(ext) ? [ext] : [];
+        const exts = [...new Set([...start, ...order])];
+        // Build a best-guess original URL (server may 302 to correct ext)
+        return `https://realbooru.com/images/${info.prefix}${info.md5}.${exts[0]}`;
+      }
+    }
+    return p?.file_url || '';
+  }catch{ return p?.file_url || ''; }
+}
+
+function updateDownloadLink(art, p){
+  try{
+    const a = $('a[download]', art); if (!a) return;
+    const url = computeDownloadUrl(p);
+    if (url) a.href = url;
+    // Give a reasonable filename
+    const ext = (url.split('.').pop()||'').toLowerCase() || (p.file_ext||'').toLowerCase() || 'jpg';
+    const base = isRealBooruPost(p) ? 'realbooru' : 'rule34';
+    a.setAttribute('download', `${base}_${p.id}.${ext}`);
+  }catch{}
+}
+
+function proxyFetchUrl(url){
+  try{
+    const p = String(settings?.corsProxy||'').trim();
+    if (!p) return url;
+    if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
+    if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
+    if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
+    const lower = p.toLowerCase();
+    if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) return p.replace(/\/?$/,'/') + url;
+    if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
+    return p + url;
+  }catch{ return url; }
+}
+
+async function handleDownload(art, p){
+  try{
+    const ua = (navigator.userAgent||'').toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    const hasShare = !!(navigator && 'share' in navigator) && !!navigator.canShare;
+    if (!(isIOS && hasShare)) return false;
+
+    // Best candidate URL
+    const url = computeDownloadUrl(p);
+    if (!url) return false;
+
+    // For cross-origin blob fetching (especially RealBooru), require proxy if CORS blocks
+    let fetchUrl = url;
+    try{
+      // Use proxy for media only if toggle is enabled
+      const prox = String(settings?.corsProxy||'').trim();
+      if (prox && !!settings?.proxyImages) fetchUrl = proxyFetchUrl(url);
+    }catch{}
+
+    const res = await fetch(fetchUrl, { credentials: 'omit', cache: 'no-cache', referrer: '' });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    const ext = (url.split('.').pop()||p.file_ext||'jpg').toLowerCase();
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+               : ext === 'png' ? 'image/png'
+               : ext === 'gif' ? 'image/gif'
+               : ext === 'webm' ? 'video/webm'
+               : ext === 'mp4' ? 'video/mp4'
+               : 'application/octet-stream';
+    const name = `${isRealBooruPost(p) ? 'realbooru' : 'rule34'}_${p.id}.${ext}`;
+    const file = new File([blob], name, { type: mime });
+    if (navigator.canShare({ files: [file] })){
+      await navigator.share({ files: [file], title: 'Save to Photos' });
+      return true;
+    }
+    return false;
+  }catch{
+    return false;
+  }
+}
+
+function isMasonry(){ return els.feed.classList.contains('masonry') && (Number(els.feed.dataset.columns||1) > 1); }
+
+function ensureMasonryStructure(){
+  try{
+    const cols = clamp(Number(els.feed.dataset.columns||1),1,4);
+    if (cols <= 1){
+      // Unwrap any column containers
+      if (masonryCols.length){
+        const cards = Array.from(els.feed.querySelectorAll('.col > .post-card'));
+        els.feed.innerHTML = '';
+        cards.forEach(c => els.feed.appendChild(c));
+        masonryCols = [];
+      }
+      return;
+    }
+    // Build/rebuild column wrappers when count mismatches
+    let needRebuild = masonryCols.length !== cols || !masonryCols.every(c => c.parentElement === els.feed);
+    if (!needRebuild && masonryCols.length){ return; }
+    const existingCards = Array.from(els.feed.querySelectorAll('.post-card'));
+    els.feed.innerHTML = '';
+    masonryCols = [];
+    for (let i=0;i<cols;i++){ const d = document.createElement('div'); d.className = 'col'; masonryCols.push(d); els.feed.appendChild(d); }
+    // Distribute existing cards into the shortest columns based on current heights
+    const colHeights = new Array(cols).fill(0);
+    for (const card of existingCards){
+      // pick shortest col
+      let idx = 0; for (let i=1;i<cols;i++){ if (colHeights[i] < colHeights[idx]) idx = i; }
+      masonryCols[idx].appendChild(card);
+      try{ colHeights[idx] += card.offsetHeight || 0; }catch{}
+    }
+  }catch{}
+}
+
+function appendCard(card){
+  if (!isMasonry()) { els.feed.appendChild(card); return; }
+  // Ensure columns exist
+  if (!masonryCols.length) ensureMasonryStructure();
+  if (!masonryCols.length) { els.feed.appendChild(card); return; }
+  // Choose the shortest column by current heights
+  let idx = 0; let minH = Infinity;
+  for (let i=0;i<masonryCols.length;i++){
+    const h = masonryCols[i].scrollHeight || masonryCols[i].offsetHeight || 0;
+    if (h < minH){ minH = h; idx = i; }
+  }
+  masonryCols[idx].appendChild(card);
 }
 
 // Build proxy URL ignoring the media toggle; used for last-resort fallbacks
@@ -639,7 +852,7 @@ async function enrichRealBooruCard(art){
       const order = ['gif','png','jpg','jpeg','webp'];
       const best = order.map(ex => ordered.find(u => u.toLowerCase().endsWith('.'+ex))).find(Boolean) || ordered[0];
       const media = $('.post-media', art); if (!media) return;
-      try { p.file_url = best; p.file_ext = (best.split('.').pop() || '').toLowerCase(); } catch {}
+      try { p.file_url = best; p.file_ext = (best.split('.').pop() || '').toLowerCase(); updateDownloadLink(art, p); } catch {}
       let img = $('img', media);
       if (img){
         // If we already have a non-thumbnail original shown, keep it
@@ -684,18 +897,25 @@ async function enrichRealBooruCard(art){
 
         // One-shot proxy fallback will be applied only after direct attempts
         let idx = 0;
+        let triedWithRef = false;
         let proxiedUsed = false;
         const next = () => {
           if (idx >= directCandidates.length){
-            if (!proxiedUsed){
+            if (!triedWithRef){
+              triedWithRef = true;
+              try { img.setAttribute('referrerpolicy','origin-when-cross-origin'); } catch {}
+              idx = 0;
+              // retry list with a permissive referrer policy
+            } else if (!proxiedUsed){
               proxiedUsed = true;
               // Try proxied version of the first candidate (or best) as a final fallback
               const base = directCandidates[0] || best;
               img.onerror = null;
               img.src = proxyUrlIfNeeded(base);
               return;
+            } else {
+              return;
             }
-            return;
           }
           const cand = directCandidates[idx++];
           // Try direct first; on error advance to next
@@ -726,6 +946,7 @@ async function enrichRealBooruCard(art){
       p.video_candidates = vidUrls.slice(0,4);
       p.file_ext = (direct.split('.').pop()||'').toLowerCase();
       p.file_url = direct;
+      try { updateDownloadLink(art, p); } catch {}
       const media = $('.post-media', art); if (!media) return;
       const img = $('img', media);
       let video = $('video', media);
@@ -735,14 +956,34 @@ async function enrichRealBooruCard(art){
         video.poster = p.preview_url || p.sample_url || '';
         try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
         video.src = direct; // direct first
-        video.onerror = () => { video.onerror = null; video.src = proxied; };
+        let vidTriedWithRef2 = false;
+        video.onerror = () => {
+          if (!vidTriedWithRef2){
+            vidTriedWithRef2 = true;
+            try { video.setAttribute('referrerpolicy','origin-when-cross-origin'); } catch {}
+            const cur = direct;
+            video.src = '';
+            setTimeout(()=>{ video.src = cur; }, 0);
+          } else {
+            video.onerror = null; video.src = proxied;
+          }
+        };
         if (img) img.replaceWith(video); else media.appendChild(video);
         video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
         const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
         vis.observe(video);
       } else {
         video.src = direct;
-        video.onerror = () => { video.onerror = null; video.src = proxied; };
+        let vidTriedWithRef3 = false;
+        video.onerror = () => {
+          if (!vidTriedWithRef3){
+            vidTriedWithRef3 = true;
+            try { video.setAttribute('referrerpolicy','origin-when-cross-origin'); } catch {}
+            const cur = direct; video.src = ''; setTimeout(()=>{ video.src = cur; }, 0);
+          } else {
+            video.onerror = null; video.src = proxied;
+          }
+        };
       }
       return;
     }

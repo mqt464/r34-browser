@@ -1,0 +1,200 @@
+    const p = String(settings?.corsProxy||'').trim();
+    if (!p) return url;
+
+    if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
+    if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
+    if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
+    const lower = p.toLowerCase();
+    if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) return p.replace(/\/?$/,'/') + url;
+    if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
+    return p + url;
+  }catch{ return url; }
+}
+
+async function enrichRealBooruCard(art){
+  const p = art?.__post; if (!p) return;
+  try{
+    let postUrl = '';
+    if (typeof p?.source === 'string' && p.source.includes('realbooru.com')) postUrl = p.source;
+    else if (p?.id) postUrl = `https://realbooru.com/index.php?page=post&s=view&id=${encodeURIComponent(p.id)}`;
+    else return;
+    const cacheKey = 'rb:post:' + postUrl;
+    let html = sessionStorage.getItem(cacheKey);
+    if (!html) {
+      html = await fetchText(postUrl, /*allowProxy*/ true);
+      try { sessionStorage.setItem(cacheKey, html); } catch {}
+    }
+
+    // Prefer full-resolution images first (especially GIFs), then fall back to video
+    const imgUrls = [];
+    const reImg = /https?:\/\/realbooru\.com\/images\/[^"'<>\s]+?\.(?:jpg|jpeg|png|gif|webp)/ig;
+    let m2; while ((m2 = reImg.exec(html))){ const u = m2[0]; if (!imgUrls.includes(u)) imgUrls.push(u); }
+    if (imgUrls.length){
+      // Prefer non-thumbnail originals when available; else allow thumbnail_ path (RB often 302s it to original)
+      const ordered = (() => {
+        const nonThumb = imgUrls.filter(u => !/\/thumbnail_/i.test(u));
+        return nonThumb.length ? nonThumb : imgUrls;
+      })();
+      // Always prefer GIF when present, then PNG/JPG/JPEG/WEBP
+      const order = ['gif','png','jpg','jpeg','webp'];
+      const best = order.map(ex => ordered.find(u => u.toLowerCase().endsWith('.'+ex))).find(Boolean) || ordered[0];
+      const media = $('.post-media', art); if (!media) return;
+      try { p.file_url = best; p.file_ext = (best.split('.').pop() || '').toLowerCase(); } catch {}
+      let img = $('img', media);
+      if (img){
+        // If we already have a non-thumbnail original shown, keep it
+        try{
+          const cur = img.currentSrc || img.getAttribute('src') || '';
+          const curRaw = cur;
+          if (/realbooru\.com/i.test(curRaw) && curRaw.includes('/images/') && !/thumbnail_/i.test(curRaw)) {
+            return; // don't downgrade an already-upgraded image
+          }
+        }catch{}
+
+        // Replace node to remove any existing error handlers from the initial fallback chain
+        try{
+          const clone = img.cloneNode(true);
+          img.replaceWith(clone);
+          img = clone;
+        }catch{}
+
+        img.referrerPolicy = 'no-referrer';
+        img.decoding = 'async';
+        img.loading = 'lazy';
+
+        // Derive md5/prefix to try canonical originals even if best is a thumbnail link
+        const derive = (s) => {
+          try{
+            if (!s) return null;
+            let m = /\/images\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            if (!m) m = /\/samples\/(..\/..\/)(?:sample_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            if (!m) m = /\/thumbnails\/(..\/..\/)(?:thumbnail_)?([a-f0-9]{32})\.(?:jpg|jpeg|png|gif|webp)/i.exec(s);
+            return m ? { prefix: m[1], md5: m[2] } : null;
+          }catch{ return null; }
+        };
+        const info = derive(best) || derive(imgUrls[0]) || null;
+        const directCandidates = [];
+        if (info){
+          for (const ex of order){ directCandidates.push(`https://realbooru.com/images/${info.prefix}${info.md5}.${ex}`); }
+          // Also include thumbnail_ variant as a late fallback (server may 302 to original)
+          directCandidates.push(`https://realbooru.com/images/${info.prefix}thumbnail_${info.md5}.jpg`);
+        }
+        // Ensure we also consider the discovered best URL as a fallback
+        if (!directCandidates.includes(best)) directCandidates.push(best);
+
+        // One-shot proxy fallback will be applied only after direct attempts
+        let idx = 0;
+        let proxiedUsed = false;
+        const next = () => {
+          if (idx >= directCandidates.length){
+            if (!proxiedUsed){
+              proxiedUsed = true;
+              // Try proxied version of the first candidate (or best) as a final fallback
+              const base = directCandidates[0] || best;
+              img.onerror = null;
+              img.src = proxyUrlIfNeeded(base);
+              return;
+            }
+            return;
+          }
+          const cand = directCandidates[idx++];
+          // Try direct first; on error advance to next
+          img.onerror = next;
+          img.src = cand;
+        };
+        img.addEventListener('load', () => {
+          try{
+            const u = img.currentSrc || img.getAttribute('src') || '';
+            const isOriginal = /\/images\//i.test(u) && !/\/thumbnail_/i.test(u);
+            if (isOriginal) { try{ img.dataset.hi = '1'; }catch{}; img.onerror = null; }
+            const sk = $('.media-skel', media); sk && sk.remove();
+          }catch{}
+        }, { once: false });
+        next();
+      }
+      return;
+    }
+
+    // If no full-res image found, check for video URLs and prefer those
+    const vidUrls = [];
+    const reVid = /https?:\/\/realbooru\.com\/(?:images|videos)\/[^"'<>\s]+?\.(?:mp4|webm)/ig;
+    let m; while ((m = reVid.exec(html))){ const u = m[0]; if (!vidUrls.includes(u)) vidUrls.push(u); }
+    if (vidUrls.length){
+      vidUrls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
+      const direct = vidUrls[0];
+      const proxied = proxyUrlIfNeeded(direct);
+      p.video_candidates = vidUrls.slice(0,4);
+      p.file_ext = (direct.split('.').pop()||'').toLowerCase();
+      p.file_url = direct;
+      const media = $('.post-media', art); if (!media) return;
+      const img = $('img', media);
+      let video = $('video', media);
+      if (!video){
+        video = document.createElement('video');
+        video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
+        video.poster = p.preview_url || p.sample_url || '';
+        try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
+        video.src = direct; // direct first
+        video.onerror = () => { video.onerror = null; video.src = proxied; };
+        if (img) img.replaceWith(video); else media.appendChild(video);
+        video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
+        const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
+        vis.observe(video);
+      } else {
+        video.src = direct;
+        video.onerror = () => { video.onerror = null; video.src = proxied; };
+      }
+      return;
+    }
+  }catch{}
+}
+
+function toggleFavorite(p){
+  let nowFav;
+  if (favSet.has(p.id)) {
+    favSet.delete(p.id);
+    favorites.ids = favorites.ids.filter(id => id !== p.id);
+    delete favorites.map[p.id];
+    haptic(15);
+    nowFav = false;
+  } else {
+    favSet.add(p.id);
+    favorites.ids.unshift(p.id);
+    favorites.map[p.id] = p;
+    haptic(35);
+    nowFav = true;
+  }
+  saveLS(LS.favorites, favorites);
+  $$('.post-card').forEach(c => {
+    if (c.dataset.id === p.id) $('.fav', c)?.classList.toggle('active', favSet.has(p.id));
+  });
+  return nowFav;
+}
+
+function renderFavorites(){
+  clearFeed();
+  if (!favorites.ids.length){ renderEmptyState('No favorites yet. Double-tap or click ? to add.'); return; }
+  const posts = favorites.ids.map(id => favorites.map[id]).filter(Boolean);
+  renderPosts(posts);
+  reachedEnd = true;
+}
+
+export async function showTagsOverlay(p){
+  els.tagsOverlay.hidden = false;
+  const skel = Array.from({ length: 18 }, (_, i) => `<span class="skel" style="width:${40 + ((i*27)%80)}px"></span>`).join('');
+  els.tagsBody.innerHTML = `<div class="tags-loading">${skel}</div>`;
+  const tags = (p.tags||'').split(/\s+/).filter(Boolean);
+  try{
+    const N = Math.min(25, tags.length);
+    const metas = await Promise.allSettled(tags.slice(0,N).map(t => API.tagMeta(t)));
+    const typeMap = new Map();
+    metas.forEach((res, idx) => {
+      if (res.status !== 'fulfilled') return;
+      const v = res.value;
+      const arr = Array.isArray(v) ? v : (Array.isArray(v?.tag) ? v.tag : []);
+      if (!arr.length) return;
+      const nameKey = tags[idx].toLowerCase();
+      const obj = arr.find(o => String(o.name||'').toLowerCase() === nameKey) || arr[0];
+      const typeNum = Number(obj?.type);
+      if (Number.isFinite(typeNum)) typeMap.set(tags[idx], typeNum);
+    });

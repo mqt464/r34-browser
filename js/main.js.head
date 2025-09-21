@@ -55,22 +55,13 @@ function boot(){
   // Provider toggle (session-only override for Search)
   const iconFor = (prov) => prov === 'realbooru' ? 'icons/RealBooru.png' : 'icons/Rule34.png';
   const labelFor = (prov) => prov === 'realbooru' ? 'RealBooru' : 'Rule34';
-  const currentProvider = () => String((session.providerOverride) || (settings.provider) || 'rule34');
   const applyProviderBadge = () => {
     const b = els.providerToggle; if (!b) return;
-    const p = currentProvider();
+    const p = session.providerOverride || settings.provider || 'rule34';
     let img = b.querySelector('img');
     if (!img){ img = document.createElement('img'); img.alt = 'Provider'; b.textContent = ''; b.appendChild(img); }
     img.src = iconFor(p);
     b.title = `Provider: ${labelFor(p)}`;
-  };
-  const updateSearchOptionsVisibility = () => {
-    try {
-      const opts = document.querySelector('.search-options');
-      if (!opts) return;
-      const p = currentProvider();
-      opts.hidden = (p === 'realbooru');
-    } catch {}
   };
   const syncProviderBtnSize = () => {
     const b = els.providerToggle; const inp = els.searchInput;
@@ -94,7 +85,6 @@ function boot(){
         const prov = btn.getAttribute('data-prov') || 'rule34';
         session.providerOverride = prov;
         applyProviderBadge();
-        updateSearchOptionsVisibility();
         closeMenu();
         if (getActiveTab && getActiveTab() === 'search'){
           clearFeed();
@@ -118,15 +108,11 @@ function boot(){
     closeMenu();
   };
   applyProviderBadge();
-  updateSearchOptionsVisibility();
   syncProviderBtnSize();
   window.addEventListener('resize', syncProviderBtnSize);
   if (els.providerToggle){
     els.providerToggle.addEventListener('click', (e) => { e.stopPropagation(); if (els.providerMenu?.hidden === false) closeMenu(); else openMenu(); });
   }
-
-  // Respond to provider changes coming from Settings
-  window.addEventListener('app:provider-changed', () => { applyProviderBadge(); updateSearchOptionsVisibility(); });
 
   // Overlay drags
   enableSheetDrag(els.tagsOverlay, hideTagsOverlay);

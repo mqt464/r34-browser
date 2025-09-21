@@ -1,0 +1,250 @@
+    els.feedEnd.hidden = !reachedEnd;
+    loading = false;
+  }
+}
+
+function composeTags(include, exclude){
+  const extra = [];
+  if (filters.excludeAI) extra.push('ai_generated','stable_diffusion','novelai','midjourney');
+  if (filters.excludeScat) extra.push('scat','coprophagia','feces');
+  if (filters.excludeShota) extra.push('loli', 'shota')
+  if (Array.isArray(filters.customExclude) && filters.customExclude.length) extra.push(...filters.customExclude);
+
+  const ex = [...new Set([ ...exclude, ...extra ])];
+  let inc = [...new Set(include)];
+  if (inc.length === 0) inc = ['id:>0'];
+  const tags = [...inc, ...ex.map(t => '-' + t)].join(' ');
+  return tags;
+}
+
+function sanitizePosts(data){
+  if (data && typeof data === 'object' && data.success === false) {
+    const msg = data.message || 'API error';
+    throw new Error(msg);
+  }
+  const arr = Array.isArray(data) ? data : (data?.post ? [].concat(data.post) : []);
+  return arr.filter(p => p && p.file_url && p.id).map(p => {
+    const hasVC = Array.isArray(p.video_candidates) && p.video_candidates.length > 0;
+    const ext = String(p.file_ext || (p.file_url.split('.').pop() || '')).toLowerCase();
+    return {
+      id: String(p.id),
+      file_url: p.file_url,
+      sample_url: p.sample_url || p.file_url,
+      preview_url: p.preview_url || p.sample_url || p.file_url,
+      file_ext: hasVC ? 'mp4' : ext,
+      width: Number(p.width)||0,
+      height: Number(p.height)||0,
+      rating: p.rating || 'q',
+      tags: (p.tags||'').trim(),
+      owner: p.owner || '',
+      created_at: p.created_at || p.change || '',
+      source: p.source || '',
+      video_candidates: hasVC ? p.video_candidates.slice() : [],
+    };
+  });
+}
+
+function showSkeletons(count = Math.max(4, Math.min(12, settings.perPage/2))){
+  const frag = document.createDocumentFragment();
+  for (let i=0;i<count;i++){
+    const card = document.createElement('article');
+    card.className = 'post-card skeleton';
+    card.style.height = (160 + (i%5)*20) + 'px';
+    frag.appendChild(card);
+  }
+  els.feed.appendChild(frag);
+}
+function hideSkeletons(){
+  $$('.post-card.skeleton', els.feed).forEach(n => n.remove());
+}
+
+function renderPosts(posts){
+  if (!Array.isArray(posts) || !posts.length) return 0;
+  const frag = document.createDocumentFragment();
+  let added = 0;
+  for (const p of posts){
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    frag.appendChild(postCard(p));
+    added++;
+  }
+  els.feed.appendChild(frag);
+  return added;
+}
+
+function postCard(p){
+  const hasCandidates = Array.isArray(p.video_candidates) && p.video_candidates.length > 0;
+  const isVideo = ['mp4','webm'].includes(p.file_ext) || hasCandidates;
+  const art = document.createElement('article');
+  art.className = 'post-card';
+  art.dataset.id = p.id;
+  art.__post = p;
+  art.innerHTML = `
+      <div class="post-media" data-id="${p.id}">
+        <div class="like-heart">?</div>
+        ${isVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls crossorigin="anonymous" poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
+                   : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
+        <div class="media-skel"></div>
+      </div>
+      <div class="post-meta">
+        <div class="left">
+          <button class="icon-btn fav ${favSet.has(p.id)?'active':''}" title="Favorite">?</button>
+          <button class="icon-btn" data-act="tags" title="View tags">??</button>
+        </div>
+        <div class="right">
+          <a class="icon-btn" href="${escapeHtml(p.file_url)}" download title="Download">?</a>
+        </div>
+      </div>`;
+
+  const likeIcon = $('.like-heart', art); if (likeIcon) likeIcon.textContent = '?';
+  const leftBox = $('.post-meta .left', art);
+  const rightBox = $('.post-meta .right', art);
+  const dlLink = $('a[download]', art);
+  const media = $('.post-media', art);
+  const imgEl = $('img', media);
+  // Prefer original/high-res image upfront if we can determine it
+  if (imgEl){
+    try{
+      const src0 = imgEl.getAttribute('src') || '';
+      const ext0 = String(p?.file_ext || (p?.file_url||'').split('.').pop() || '').toLowerCase();
+      const isImageFile = !!p?.file_url && !['mp4','webm'].includes(ext0);
+      if (!isVideo && isImageFile && p.file_url !== src0){
+        // Always prefer the provider's file_url if it is an image
+        imgEl.src = proxyUrlIfNeeded(p.file_url);
+      }
+    }catch{}
+  }
+  const heart = $('.like-heart', media);
+  const favBtn = $('.fav', art);
+  const tagsBtn = $('[data-act="tags"]', art);
+  const video = $('video', media);
+  if (favBtn) favBtn.textContent = 'Favorite';
+  if (dlLink) {
+    dlLink.textContent = 'Download';
+    dlLink.target = '_blank';
+    dlLink.rel = 'noopener noreferrer';
+    if (leftBox) leftBox.appendChild(dlLink);
+  }
+  if (tagsBtn) { tagsBtn.textContent = 'View tags'; if (rightBox) rightBox.appendChild(tagsBtn); }
+
+  // Double-tap/double-click like FX
+  let lastTap = 0;
+  const showLikeFX = (added) => {
+    const mediaEl = heart.parentElement;
+    if (!mediaEl) return;
+    heart.classList.remove('added','removed');
+    heart.classList.add(added ? 'added' : 'removed');
+    mediaEl.classList.add('show-like');
+    if (added){
+      const ring = document.createElement('span'); ring.className = 'like-ring'; mediaEl.appendChild(ring);
+      const burst = document.createElement('span'); burst.className = 'like-burst';
+      for (let i=0;i<8;i++){ const dot = document.createElement('i'); burst.appendChild(dot); }
+      mediaEl.appendChild(burst);
+      setTimeout(() => { ring.remove(); burst.remove(); }, 900);
+    }
+    setTimeout(() => mediaEl && mediaEl.classList.remove('show-like'), 900);
+  };
+  const toggleLike = () => {
+    const nowFav = toggleFavorite(p);
+    showLikeFX(nowFav);
+    if (favBtn){ favBtn.classList.add('pulse'); setTimeout(()=>favBtn.classList.remove('pulse'), 480); }
+  };
+  if (!isTouch) { media.addEventListener('dblclick', (e) => { e.preventDefault(); toggleLike(); }); }
+  if (!isVideo) {
+    media.addEventListener('touchend', (e) => {
+      const now = Date.now();
+      if (now - lastTap < settings.doubleTapMs) { e.preventDefault(); toggleLike(); lastTap = 0; }
+      else lastTap = now;
+    }, { passive: true });
+  }
+
+  // Favorite button
+  favBtn.addEventListener('click', () => { const nowFav = toggleFavorite(p); favBtn.classList.add('pulse'); setTimeout(()=>favBtn.classList.remove('pulse'), 480); });
+  // Tags button
+  tagsBtn.addEventListener('click', () => showTagsOverlay(p));
+
+  const skel = $('.media-skel', media);
+  if (video){
+    // Ensure no CORS is enforced on media loads
+    try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
+    // On iOS, prefer mp4 candidate order
+    try {
+      const ua = (navigator.userAgent||'').toLowerCase();
+      const isIOS = /iphone|ipad|ipod/.test(ua);
+      if (isIOS && Array.isArray(p.video_candidates)){
+        p.video_candidates = p.video_candidates
+          .filter(u => u.toLowerCase().endsWith('.mp4'))
+          .concat(p.video_candidates.filter(u => !u.toLowerCase().endsWith('.mp4')));
+      }
+    } catch {}
+
+    const setVideoSrc = () => {
+      if (Array.isArray(p.video_candidates) && p.video_candidates.length){
+        video.src = p.video_candidates[0];
+        return;
+      }
+      if (p.file_ext === 'mp4' || p.file_ext === 'webm'){
+        video.src = p.file_url;
+      }
+    };
+
+    setVideoSrc();
+    let vcIdx = 0;
+    video.addEventListener('loadeddata', () => { skel?.remove(); }, { once: true });
+    video.addEventListener('error', () => {
+      // Try next candidate or fallback to image
+      if (Array.isArray(p.video_candidates) && vcIdx < p.video_candidates.length - 1){
+        vcIdx++;
+        video.src = p.video_candidates[vcIdx];
+      } else {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        img.src = p.sample_url || p.file_url || '';
+        img.alt = 'post';
+        video.replaceWith(img);
+        img.addEventListener('load', () => skel?.remove(), { once: true });
+      }
+    }, { passive: true });
+
+    video.addEventListener('click', () => {
+      if (video.paused) video.play().catch(()=>{});
+      else video.pause();
+    });
+
+    const vis = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (!e.isIntersecting) video.pause(); });
+    }, { rootMargin: '200px' });
+    vis.observe(video);
+  }
+
+  // If RealBooru item and not already a video, schedule enrichment when visible
+  try{
+    const rbHint = [p?.file_url||'', p?.preview_url||'', p?.sample_url||'', p?.source||''].join(' ');
+    const isRBPost = /realbooru\.com/i.test(rbHint);
+    if (!isVideo && isRBPost && rbEnrichIO){
+      rbEnrichIO.observe(art);
+    }
+  }catch{}
+
+  // Image fallback chain (RealBooru upgrade + generic fallbacks)
+  if (imgEl){
+    try{
+      const src0 = imgEl.getAttribute('src') || '';
+      // If the initial image already loaded (small thumbs/samples), remove the spinner immediately
+      try { if (imgEl.complete && imgEl.naturalWidth > 0) skel?.remove(); } catch {}
+      const deproxy = (s) => {
+        try{
+          if (!s) return '';
+          const str = String(s);
+          const m1 = /[?&]url=([^&]+)/i.exec(str);
+          if (m1) return decodeURIComponent(m1[1]);
+          const m2 = /\/http\/(https?:\/\/[^\s]+)/i.exec(str);
+          if (m2) return m2[1];
+          return str;
+        }catch{ return String(s||''); }
+      };
+      const srcRaw = deproxy(src0);
+      const candidates = [];
+      const rbHint = [srcRaw, deproxy(p?.file_url||''), deproxy(p?.preview_url||''), deproxy(p?.sample_url||'')].join(' ');
+      const isRB = /realbooru\.com/i.test(rbHint);
