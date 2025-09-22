@@ -519,10 +519,9 @@ function postCard(p){
 
     const chooseVideoUrl = (u) => {
       try{
-        // On iOS, if a CORS proxy is configured, always proxy video loads to avoid
-        // stricter cross-origin media policies breaking playback.
-        const hasProxy = !!String(settings?.corsProxy||'').trim();
-        return (IS_IOS && hasProxy) ? proxyUrlAlways(u) : u;
+        // Only proxy when user enabled "Use proxy for media" in Settings.
+        // Otherwise, always use the direct URL.
+        return proxyUrlIfNeeded(u);
       }catch{ return u; }
     };
     const setVideoSrc = () => {
@@ -1016,8 +1015,8 @@ async function enrichRealBooruCard(art){
       vidUrls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
       const chooseVideoUrlRB = (u) => {
         try{
-          const hasProxy = !!String(settings?.corsProxy||'').trim();
-          return (IS_IOS && hasProxy) ? proxyUrlAlways(u) : u;
+          // Only proxy when "Use proxy for media" is enabled.
+          return proxyUrlIfNeeded(u);
         }catch{ return u; }
       };
       const direct = vidUrls[0];
@@ -1038,7 +1037,7 @@ async function enrichRealBooruCard(art){
         if (IS_IOS && String(direct||'').toLowerCase().endsWith('.webm') && !vidUrls.some(u => u.toLowerCase().endsWith('.mp4'))){
           // Do not replace image with an unsupported video element
         } else {
-          video.src = chooseVideoUrlRB(direct); // direct first (with optional proxy on iOS)
+          video.src = chooseVideoUrlRB(direct); // respect media-proxy toggle
         }
         let vidTriedWithRef2 = false;
         video.onerror = () => {
