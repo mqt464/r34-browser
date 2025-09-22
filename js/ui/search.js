@@ -1,6 +1,6 @@
-import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250919';
-import { API } from '../core/api.js?v=20250919';
-import { settings, session } from '../core/state.js?v=20250919';
+import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250922';
+import { API } from '../core/api.js?v=20250922';
+import { settings, session } from '../core/state.js?v=20250922';
 
 export const searchState = { include: [], exclude: [], sort: 'default', minScore: 0 };
 
@@ -10,9 +10,17 @@ let onPerformSearchCb = () => {};
 export function initSearch(domRefs, { onPerformSearch } = {}){
   els = domRefs; onPerformSearchCb = onPerformSearch || (()=>{});
 
-  // Input: Enter adds a tag
+  // Input: Enter adds a tag if text present; if empty, performs search
   els.searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); addSearchTag(els.searchInput.value.trim()); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = els.searchInput.value.trim();
+      if (val) {
+        addSearchTag(val);
+      } else {
+        performSearch();
+      }
+    }
   });
   // Replace spaces with underscores while typing
   els.searchInput.addEventListener('input', (e) => {
@@ -26,6 +34,18 @@ export function initSearch(domRefs, { onPerformSearch } = {}){
   els.searchInput.addEventListener('input', debounce(onAutocomplete, 150));
   els.searchGo.addEventListener('click', () => performSearch());
   document.addEventListener('click', (e) => { if (!els.autocomplete.contains(e.target) && e.target !== els.searchInput) els.autocomplete.hidden = true; });
+
+  // Global: '/' focuses the search input when not typing in another field
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const t = e.target;
+      const isTyping = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/i.test(t.tagName));
+      if (!isTyping) {
+        e.preventDefault();
+        try { els.searchInput?.focus(); } catch {}
+      }
+    }
+  });
 
   // Search options (sort + min score)
   try{
@@ -251,3 +271,4 @@ async function applyTagClass(el, rawTag){
   el.classList.remove('tag-general','tag-artist','tag-character','tag-copyright','tag-meta');
   el.classList.add(classForType(type));
 }
+

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.0] - ' + $date + '
+## [0.2.0] - 2025-09-18
 
 ### Added
 - RealBooru provider via scraping (list + post pages) with per-card lazy enrichment of actual mp4/webm media when visible.
@@ -28,6 +28,15 @@ All notable changes to this project will be documented in this file.
 
 
 ## [0.2.1] - 2025-09-19
+
+## [0.2.2] - 2025-09-22
+
+### Fixed
+- iOS video playback: prefer MP4 candidates, avoid inline WebM on iOS, and proxy video URLs on iOS when a CORS proxy is configured to bypass stricter cross‑origin media policies.
+- RealBooru enrichment: more robust upgrade from thumbnails to originals; iOS-safe handling for video nodes.
+
+### Changed
+- Graceful fallback for WebM-only posts on iOS opens media in a new tab via Download link.
 
 ### Fixed
 - Centered spinners in CORS Proxy, User ID, and API Key fields (no transform conflict).

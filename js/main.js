@@ -1,8 +1,8 @@
-import { $, $$, enableSheetDrag } from './core/utils.js?v=20250919';
-import { settings, session } from './core/state.js?v=20250919';
-import { initSearch, getSearchState, onAutocomplete as triggerAutocomplete } from './ui/search.js?v=20250919';
-import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js?v=20250919';
-import { initSettings, showSettings, hideSettings } from './ui/settings.js?v=20250919';
+import { $, $$, enableSheetDrag } from './core/utils.js?v=20250922';
+import { settings, session } from './core/state.js?v=20250922';
+import { initSearch, getSearchState, onAutocomplete as triggerAutocomplete } from './ui/search.js?v=20250922';
+import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js?v=20250922';
+import { initSettings, showSettings, hideSettings } from './ui/settings.js?v=20250922';
 
 const els = {
   feed: $('#feed'),
@@ -141,4 +141,5 @@ function boot(){
 }
 
 boot();
+
 

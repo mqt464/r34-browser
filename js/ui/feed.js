@@ -1,7 +1,7 @@
-import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250919';
-import { API, fetchText } from '../core/api.js?v=20250919';
-import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250919';
-import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250919';
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250922';
+import { API, fetchText } from '../core/api.js?v=20250922';
+import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250922';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250922';
 
 let els;
 let masonryCols = [];
@@ -17,6 +17,8 @@ let seen = new Set(); // dedupe posts in feed
 let upDelta = 0;
 let downDelta = 0;
 let rbEnrichIO = null;
+// Basic UA check for iOS Safari constraints (webm unsupported, stricter cross-origin media)
+const IS_IOS = (()=>{ try{ return /iphone|ipad|ipod/.test((navigator.userAgent||'').toLowerCase()); }catch{ return false; } })();
 
 // Limit concurrent RealBooru enrich tasks to avoid bursts
 const ENRICH_MAX = 4;
@@ -357,16 +359,23 @@ function renderPosts(posts){
 function postCard(p){
   const hasCandidates = Array.isArray(p.video_candidates) && p.video_candidates.length > 0;
   const isVideo = ['mp4','webm'].includes(p.file_ext) || hasCandidates;
+  const hasMp4Candidate = hasCandidates && p.video_candidates.some(u => String(u||'').toLowerCase().endsWith('.mp4'));
+  // On iOS, avoid rendering inline webm (unsupported). If no MP4 candidate is available, render as image instead.
+  const extLower = String(p.file_ext||'').toLowerCase();
+  const renderAsVideo = isVideo && !(IS_IOS && extLower === 'webm' && !hasMp4Candidate);
   const art = document.createElement('article');
   art.className = 'post-card';
   art.dataset.id = p.id;
   art.__post = p;
-  try{ if (isRealBooruPost(p)) art.classList.add('media-cover'); }catch{}
+  
   const mediaStyle = (Number(p.width)>0 && Number(p.height)>0) ? `aspect-ratio: ${Number(p.width)} / ${Number(p.height)}` : 'aspect-ratio: 1 / 1';
+  // Prefer proxied poster when enabled to avoid CORS/hotlink issues on Chromium
+  let posterUrl = '';
+  try{ posterUrl = proxyUrlIfNeeded(p.preview_url || p.sample_url || ''); }catch{}
   art.innerHTML = `
       <div class="post-media" data-id="${p.id}" style="${mediaStyle}">
         <div class="like-heart">?</div>
-        ${isVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls crossorigin="anonymous" poster="${escapeHtml(p.preview_url || p.sample_url || '')}"></video>`
+        ${renderAsVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls referrerpolicy="no-referrer" poster="${escapeHtml(posterUrl)}"></video>`
                    : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
         <div class="media-skel"></div>
       </div>
@@ -386,6 +395,30 @@ function postCard(p){
   const dlLink = $('a[download]', art);
   const media = $('.post-media', art);
   const imgEl = $('img', media);
+  // Sync the media box aspect-ratio to the actual media once it is known
+  try{
+    const applyAspectFrom = (el) => {
+      if (!el || !media) return;
+      try{
+        let w = 0, h = 0;
+        if (el.tagName === 'IMG') { w = el.naturalWidth||0; h = el.naturalHeight||0; }
+        else if (el.tagName === 'VIDEO') { w = el.videoWidth||0; h = el.videoHeight||0; }
+        if (w > 0 && h > 0){ media.style.aspectRatio = `${w} / ${h}`; }
+      }catch{}
+    };
+    const bindAspect = (el) => {
+      if (!el) return;
+      if (el.tagName === 'IMG'){
+        if (el.complete && el.naturalWidth > 0) applyAspectFrom(el);
+        el.addEventListener('load', () => applyAspectFrom(el));
+      } else if (el.tagName === 'VIDEO'){
+        if (el.readyState >= 1) applyAspectFrom(el);
+        el.addEventListener('loadedmetadata', () => applyAspectFrom(el));
+        try{ el.addEventListener('resize', () => applyAspectFrom(el)); }catch{}
+      }
+    };
+    bindAspect(imgEl);
+  }catch{}
   // Prefer original/high-res image upfront if we can determine it
   if (imgEl){
     try{
@@ -402,6 +435,8 @@ function postCard(p){
   const favBtn = $('.fav', art);
   const tagsBtn = $('[data-act="tags"]', art);
   const video = $('video', media);
+  // Also bind aspect for initial video elements
+  try{ if (video) { const ev = video; if (ev.readyState >= 1) { /* metadata known */ } ; ev.addEventListener('loadedmetadata', () => { try{ const w=ev.videoWidth||0, h=ev.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} }); try{ ev.addEventListener('resize', () => { try{ const w=ev.videoWidth||0, h=ev.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} }); }catch{} } }catch{}
   if (favBtn) favBtn.textContent = 'Favorite';
   if (dlLink) {
     dlLink.textContent = 'Download';
@@ -441,12 +476,25 @@ function postCard(p){
     if (favBtn){ favBtn.classList.add('pulse'); setTimeout(()=>favBtn.classList.remove('pulse'), 480); }
   };
   if (!isTouch) { media.addEventListener('dblclick', (e) => { e.preventDefault(); toggleLike(); }); }
-  if (!isVideo) {
+  if (!renderAsVideo) {
     media.addEventListener('touchend', (e) => {
       const now = Date.now();
       if (now - lastTap < settings.doubleTapMs) { e.preventDefault(); toggleLike(); lastTap = 0; }
       else lastTap = now;
     }, { passive: true });
+    // iOS + webm: clicking the tile should open the media in a new tab
+    try{
+      if (IS_IOS && extLower === 'webm'){
+        media.style.cursor = 'pointer';
+        media.addEventListener('click', (e) => {
+          try{
+            const a = $('a[download]', art);
+            const href = a?.href || p.file_url || '';
+            if (href) window.open(href, '_blank');
+          }catch{}
+        });
+      }
+    }catch{}
   }
 
   // Favorite button
@@ -469,14 +517,22 @@ function postCard(p){
       }
     } catch {}
 
+    const chooseVideoUrl = (u) => {
+      try{
+        // On iOS, if a CORS proxy is configured, always proxy video loads to avoid
+        // stricter cross-origin media policies breaking playback.
+        const hasProxy = !!String(settings?.corsProxy||'').trim();
+        return (IS_IOS && hasProxy) ? proxyUrlAlways(u) : u;
+      }catch{ return u; }
+    };
     const setVideoSrc = () => {
       if (Array.isArray(p.video_candidates) && p.video_candidates.length){
-        video.src = p.video_candidates[0];
+        video.src = chooseVideoUrl(p.video_candidates[0]);
         try { p.file_url = p.video_candidates[0]; p.file_ext = (p.file_url.split('.').pop()||'').toLowerCase(); updateDownloadLink(art, p); } catch {}
         return;
       }
       if (p.file_ext === 'mp4' || p.file_ext === 'webm'){
-        video.src = p.file_url;
+        video.src = chooseVideoUrl(p.file_url);
         try { updateDownloadLink(art, p); } catch {}
       }
     };
@@ -484,7 +540,9 @@ function postCard(p){
     setVideoSrc();
     let vcIdx = 0;
     let vidTriedWithRef = false;
-    video.addEventListener('loadeddata', () => { skel?.remove(); }, { once: true });
+    // Remove skeleton as soon as metadata (poster) is available; also on first frame
+    video.addEventListener('loadedmetadata', () => { try{ skel?.remove(); }catch{} }, { once: true });
+    video.addEventListener('loadeddata', () => { try{ skel?.remove(); }catch{} }, { once: true });
     video.addEventListener('error', () => {
       // Try next candidate or fallback to image
       if (!vidTriedWithRef){
@@ -498,7 +556,10 @@ function postCard(p){
       }
       if (Array.isArray(p.video_candidates) && vcIdx < p.video_candidates.length - 1){
         vcIdx++;
-        video.src = p.video_candidates[vcIdx];
+        try{
+          const next = p.video_candidates[vcIdx];
+          video.src = chooseVideoUrl(next);
+        }catch{ video.src = p.video_candidates[vcIdx]; }
       } else {
         // One last attempt: try proxied URL if media proxy is enabled
         try{
@@ -512,7 +573,7 @@ function postCard(p){
         img.src = p.sample_url || p.file_url || '';
         img.alt = 'post';
         video.replaceWith(img);
-        img.addEventListener('load', () => skel?.remove(), { once: true });
+        img.addEventListener('load', () => { try{ skel?.remove(); }catch{} try{ const m = media; const w=img.naturalWidth||0, h=img.naturalHeight||0; if (m && w>0 && h>0) m.style.aspectRatio = `${w} / ${h}`; }catch{} }, { once: false });
       }
     }, { passive: true });
 
@@ -646,10 +707,20 @@ function proxyUrlIfNeeded(url){
     const p = String(settings?.corsProxy||'').trim();
     if (!p || !settings?.proxyImages) return url;
 
+    const uLower = String(url).toLowerCase();
+    const lower = p.toLowerCase();
+    // Detect already-proxied URLs to avoid double-wrapping
+    let prefix = p;
+    if (p.includes('{url}')) prefix = p.split('{url}')[0];
+    else if (/[?&]$/.test(p)) prefix = p; // e.g. https://proxy/?
+    else if (/[?&]url=$/i.test(p)) prefix = p; // e.g. https://proxy/?url=
+    else if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) prefix = p.replace(/\/?$/,'/');
+    else if (/^https?:\/\/[^/]+\/?$/.test(p)) prefix = p.replace(/\/?$/,'/');
+    if (uLower.startsWith(prefix.toLowerCase())) return url;
+
     if (p.includes('{url}')) return p.replace('{url}', encodeURIComponent(url));
     if (/[?&]$/.test(p)) return p + encodeURIComponent(url);
     if (/[?&]url=$/i.test(p)) return p + encodeURIComponent(url);
-    const lower = p.toLowerCase();
     if (lower.includes('r.jina.ai') || /\/http\/?$/.test(lower)) return p.replace(/\/?$/,'/') + url;
     if (/^https?:\/\/[^/]+\/?$/.test(p)) return p.replace(/\/?$/,'/') + url;
     return p + url;
@@ -928,6 +999,8 @@ async function enrichRealBooruCard(art){
             const isOriginal = /\/images\//i.test(u) && !/\/thumbnail_/i.test(u);
             if (isOriginal) { try{ img.dataset.hi = '1'; }catch{}; img.onerror = null; }
             const sk = $('.media-skel', media); sk && sk.remove();
+            // Update aspect ratio to match loaded image
+            try{ const w=img.naturalWidth||0, h=img.naturalHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{}
           }catch{}
         }, { once: false });
         next();
@@ -941,6 +1014,12 @@ async function enrichRealBooruCard(art){
     let m; while ((m = reVid.exec(html))){ const u = m[0]; if (!vidUrls.includes(u)) vidUrls.push(u); }
     if (vidUrls.length){
       vidUrls.sort((a,b)=> (b.endsWith('.mp4')?0:1) - (a.endsWith('.mp4')?0:1));
+      const chooseVideoUrlRB = (u) => {
+        try{
+          const hasProxy = !!String(settings?.corsProxy||'').trim();
+          return (IS_IOS && hasProxy) ? proxyUrlAlways(u) : u;
+        }catch{ return u; }
+      };
       const direct = vidUrls[0];
       const proxied = proxyUrlIfNeeded(direct);
       p.video_candidates = vidUrls.slice(0,4);
@@ -953,9 +1032,14 @@ async function enrichRealBooruCard(art){
       if (!video){
         video = document.createElement('video');
         video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
-        video.poster = p.preview_url || p.sample_url || '';
+        try{ video.poster = proxyUrlIfNeeded(p.preview_url || p.sample_url || ''); }catch{ video.poster = p.preview_url || p.sample_url || ''; }
         try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
-        video.src = direct; // direct first
+        // iOS: if this is a webm and no mp4 available, avoid inline and keep image (tap opens new tab via Download)
+        if (IS_IOS && String(direct||'').toLowerCase().endsWith('.webm') && !vidUrls.some(u => u.toLowerCase().endsWith('.mp4'))){
+          // Do not replace image with an unsupported video element
+        } else {
+          video.src = chooseVideoUrlRB(direct); // direct first (with optional proxy on iOS)
+        }
         let vidTriedWithRef2 = false;
         video.onerror = () => {
           if (!vidTriedWithRef2){
@@ -968,7 +1052,14 @@ async function enrichRealBooruCard(art){
             video.onerror = null; video.src = proxied;
           }
         };
-        if (img) img.replaceWith(video); else media.appendChild(video);
+        if (video.src){ if (img) img.replaceWith(video); else media.appendChild(video); }
+        try{ const sk = $('.media-skel', media); video.addEventListener('loadedmetadata', () => { try{ sk?.remove(); }catch{} }, { once: true }); video.addEventListener('loadeddata', () => { try{ sk?.remove(); }catch{} }, { once: true }); }catch{}
+        try{
+          const applyAspect = () => { try{ const w=video.videoWidth||0, h=video.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} };
+          if (video.readyState >= 1) applyAspect();
+          video.addEventListener('loadedmetadata', applyAspect);
+          try{ video.addEventListener('resize', applyAspect); }catch{}
+        }catch{}
         video.addEventListener('click', () => { if (video.paused) video.play().catch(()=>{}); else video.pause(); });
         const vis = new IntersectionObserver(entries => { entries.forEach(e => { if (!e.isIntersecting) video.pause(); }); }, { rootMargin: '200px' });
         vis.observe(video);
@@ -1150,5 +1241,6 @@ function hideToTopBtn(){
   };
   b.addEventListener('transitionend', onEnd);
 }
+
 
 

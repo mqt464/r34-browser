@@ -1,8 +1,8 @@
-import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250919';
-import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250919';
-import { API, parseTagXML, fetchText } from '../core/api.js?v=20250919';
-import { renderChipsFix, normalizeTag } from './search.js?v=20250919';
-import { applyTheme, applyColumns } from './feed.js?v=20250919';
+import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250922';
+import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250922';
+import { API, parseTagXML, fetchText } from '../core/api.js?v=20250922';
+import { renderChipsFix, normalizeTag } from './search.js?v=20250922';
+import { applyTheme, applyColumns } from './feed.js?v=20250922';
 
 let els;
 let dataMsgTimer = 0;
@@ -558,4 +558,5 @@ function favoritesPerMonth(posts, month){
   let c = 0; for (const p of posts){ const m = parseMonth(p.created_at || p.change || ''); if (m===month) c++; }
   return c;
 }
+
 
