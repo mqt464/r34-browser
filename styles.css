@@ -72,7 +72,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .topbar .search-options,
 .topbar #tag-chips{
   /* Prepare for slide-collapse */
-  overflow: hidden;
+  overflow: visible; /* allow dropdowns (provider menu, autocomplete) to overflow */
   max-height: 500px;
   will-change: max-height, opacity, transform;
   transition: max-height .28s cubic-bezier(.2,.8,.2,1), margin .28s cubic-bezier(.2,.8,.2,1), opacity .2s ease, transform .22s ease;
@@ -80,6 +80,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .topbar.collapsed .searchbox,
 .topbar.collapsed .search-options,
 .topbar.collapsed #tag-chips{
+  overflow: hidden; /* only hide overflow when collapsing */
   max-height: 0;
   margin-top: 0 !important;
   margin-bottom: 0 !important;

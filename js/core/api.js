@@ -1,4 +1,4 @@
-import { settings, session } from './state.js';
+import { settings, session } from './state.js?v=20250926';
 
 function withProxy(url){
   const p = String(settings?.corsProxy||'').trim();
