@@ -111,7 +111,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .brand #btn-settings svg{ width:22px; height:22px; }
 .brand #btn-settings:hover{background: color-mix(in oklab, var(--accent) 18%, var(--bg-elev))}
 
-.searchbox{display:flex; align-items:center; gap:8px; position:relative}
+.searchbox{display:flex; align-items:center; gap:8px; position:relative; z-index: 97}
 .provider-btn{
   width: var(--search-h); height: var(--search-h);
   border-radius: 10px; border:1px solid var(--border);
@@ -122,7 +122,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .provider-btn:hover{ background: color-mix(in oklab, var(--accent) 12%, var(--bg-elev)) }
 .provider-btn img{ width: 22px; height: 22px; display:block }
 .provider-menu{
-  position:absolute; top: calc(100% + 6px); left: 0; z-index: 95;
+  position:absolute; top: calc(100% + 6px); left: 0; z-index: 1000;
   background: var(--bg-elev); border:1px solid var(--border); border-radius: 12px; padding:6px;
   box-shadow: 0 10px 24px #00000060;
   animation: dropdown .16s ease-out;
@@ -179,7 +179,7 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .autocomplete{
   position:absolute; top:100%; left:0; right:0; background: var(--bg-elev);
   border:1px solid var(--border); border-radius:12px; margin-top:6px; overflow:hidden;
-  max-height: 280px; overflow-y:auto; z-index: 90;
+  max-height: 280px; overflow-y:auto; z-index: 999;
 }
 .autocomplete .item{padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:10px}
 .autocomplete .item:last-child{border-bottom:none}
