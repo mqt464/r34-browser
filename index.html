@@ -7,7 +7,7 @@
     <meta name="referrer" content="no-referrer" />
     <title>R34 Browser</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20250922" />
+    <link rel="stylesheet" href="styles.css?v=20250926" />
     <meta name="color-scheme" content="light dark" />
     <!-- PWA/Standalone full-screen for iOS/Android home screen installs -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -177,6 +177,14 @@
                 <input id="opt-accent" type="color" />
               </label>
             </div>
+            <div class="row">
+              <label class="switch">
+                <input id="opt-auto-hide-topbar" type="checkbox" />
+                <span class="switch-ui" aria-hidden="true"></span>
+                <span class="label">Auto-hide search on scroll</span>
+              </label>
+            </div>
+            <div class="note">Hides the search bar and options while scrolling down. Scroll up a bit to reveal.</div>
           </div>
 
           <div class="card">
@@ -245,7 +253,7 @@
       </template>
     </div>
 
-    <script type="module" src="js/main.js?v=20250922"></script>
+    <script type="module" src="js/main.js?v=20250926"></script>
   </body>
   </html>
 

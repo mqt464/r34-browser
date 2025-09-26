@@ -1,7 +1,7 @@
-import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250922';
-import { API, fetchText } from '../core/api.js?v=20250922';
-import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250922';
-import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250922';
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250926';
+import { API, fetchText } from '../core/api.js?v=20250926';
+import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250926';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250926';
 
 let els;
 let masonryCols = [];
@@ -16,6 +16,10 @@ let seen = new Set(); // dedupe posts in feed
 // Scroll deltas to debounce slight up/down jiggles
 let upDelta = 0;
 let downDelta = 0;
+// Separate deltas for topbar hide/show thresholding
+let tbUpDelta = 0;
+let tbDownDelta = 0;
+let topbarCollapsed = false;
 let rbEnrichIO = null;
 // Basic UA check for iOS Safari constraints (webm unsupported, stricter cross-origin media)
 const IS_IOS = (()=>{ try{ return /iphone|ipad|ipod/.test((navigator.userAgent||'').toLowerCase()); }catch{ return false; } })();
@@ -77,6 +81,7 @@ export function initFeed(domRefs){
   // Initial layout
   applyTheme();
   applyColumns();
+  applyTopbarPref();
   // Position underline for initial tab after main calls switchTab
   setTimeout(() => updateTabUnderline(), 0);
 
@@ -1205,6 +1210,11 @@ export function onScroll(){
   els.scrollProgress.style.width = (pct*100).toFixed(1) + '%';
   const dy = y - lastScrollY;
   const dir = dy > 0 ? 1 : (dy < 0 ? -1 : direction);
+  // Respect preference: keep expanded when auto-hide disabled
+  if (!settings?.autoHideTopbar){
+    expandTopbar();
+    // still update progress, button, and lastScroll
+  }
   // Distance thresholds to avoid instant show/hide on tiny scrolls
   const showThreshold = 1200; // only consider button after this scroll depth
   const showMinDelta = 90;    // need to scroll up at least this much to show
@@ -1216,6 +1226,19 @@ export function onScroll(){
 
   if (dir < 0 && y > showThreshold && upDelta >= showMinDelta) { showToTopBtn(); upDelta = 0; }
   if ((dir > 0 && downDelta >= hideMinDelta) || nearTop) { hideToTopBtn(); downDelta = 0; }
+
+  // Topbar collapse/expand with smaller thresholds
+  const tbNearTop = y < 60;
+  // accumulate for topbar independently
+  if (dy < 0) { tbUpDelta += -dy; tbDownDelta = 0; }
+  else if (dy > 0) { tbDownDelta += dy; tbUpDelta = 0; }
+  const tbShowMin = 40; // px to scroll up to expand
+  const tbHideMin = 60; // px to scroll down to collapse
+  if (settings?.autoHideTopbar){
+    if (tbNearTop) { expandTopbar(); tbUpDelta = tbDownDelta = 0; }
+    else if (dir > 0 && tbDownDelta >= tbHideMin) { collapseTopbar(); tbDownDelta = 0; }
+    else if (dir < 0 && tbUpDelta >= tbShowMin) { expandTopbar(); tbUpDelta = 0; }
+  }
   direction = dir;
   lastScrollY = y;
 }
@@ -1239,6 +1262,25 @@ function hideToTopBtn(){
     b.removeEventListener('transitionend', onEnd);
   };
   b.addEventListener('transitionend', onEnd);
+}
+
+function collapseTopbar(){
+  if (topbarCollapsed) return;
+  topbarCollapsed = true;
+  try{ els.topbar?.classList.add('collapsed'); }catch{}
+}
+function expandTopbar(){
+  if (!topbarCollapsed) return;
+  topbarCollapsed = false;
+  try{ els.topbar?.classList.remove('collapsed'); }catch{}
+}
+
+export function applyTopbarPref(){
+  // Apply preference immediately
+  if (!settings?.autoHideTopbar){
+    topbarCollapsed = false;
+    try{ els.topbar?.classList.remove('collapsed'); }catch{}
+  }
 }
 
 

@@ -1,8 +1,8 @@
-import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250922';
-import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250922';
-import { API, parseTagXML, fetchText } from '../core/api.js?v=20250922';
-import { renderChipsFix, normalizeTag } from './search.js?v=20250922';
-import { applyTheme, applyColumns } from './feed.js?v=20250922';
+import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250926';
+import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250926';
+import { API, parseTagXML, fetchText } from '../core/api.js?v=20250926';
+import { renderChipsFix, normalizeTag } from './search.js?v=20250926';
+import { applyTheme, applyColumns, applyTopbarPref } from './feed.js?v=20250926';
 
 let els;
 let dataMsgTimer = 0;
@@ -186,6 +186,17 @@ export function renderSettings(){
   });
   $('#opt-accent').value = settings.accent || '#7c3aed';
   $('#opt-accent').addEventListener('input', (e)=>{ settings.accent = e.target.value; saveLS(LS.settings, settings); applyTheme(); });
+
+  // Appearance: auto-hide topbar on scroll
+  const autoHideEl = $('#opt-auto-hide-topbar');
+  if (autoHideEl){
+    autoHideEl.checked = settings.autoHideTopbar !== false;
+    autoHideEl.addEventListener('change', (e) => {
+      settings.autoHideTopbar = !!e.target.checked;
+      saveLS(LS.settings, settings);
+      applyTopbarPref();
+    });
+  }
 
   // Filters
   $('#f-ai').checked = !!filters.excludeAI;

@@ -12,6 +12,7 @@ export const DEFAULTS = {
     columns: 1,
     theme: 'system',
     accent: '#7c3aed',
+    autoHideTopbar: true,
     // Data source: 'rule34' | 'realbooru'
     provider: 'rule34',
     // Optional CORS proxy prefix (e.g. https://r.jina.ai/http/)
@@ -58,7 +59,7 @@ export const session = {
 };
 
 // App version for display in Settings
-export const APP_VERSION = 'v2025.09.22';
+export const APP_VERSION = 'v2025.09.26';
 
 export function setSettings(next){ settings = next; saveLS(LS.settings, settings); }
 export function setFilters(next){ filters = next; saveLS(LS.filters, filters); }
