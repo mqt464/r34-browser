@@ -1,6 +1,6 @@
-import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20250926';
-import { API } from '../core/api.js?v=20250926';
-import { settings, session } from '../core/state.js?v=20250926';
+import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20251007';
+import { API } from '../core/api.js?v=20251007';
+import { settings, session } from '../core/state.js?v=20251007';
 
 export const searchState = { include: [], exclude: [], sort: 'default', minScore: 0 };
 

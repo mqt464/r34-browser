@@ -1,7 +1,7 @@
-import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20250926';
-import { API, fetchText } from '../core/api.js?v=20250926';
-import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20250926';
-import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20250926';
+import { $, $$, clamp, escapeHtml, isTouch, haptic } from '../core/utils.js?v=20251007';
+import { API, fetchText } from '../core/api.js?v=20251007';
+import { LS, saveLS, settings, filters, groups, favorites, favSet, session } from '../core/state.js?v=20251007';
+import { getSearchState, addSearchTag, removeSearchTag, toggleSearchTag } from './search.js?v=20251007';
 
 let els;
 let masonryCols = [];
@@ -19,7 +19,12 @@ let downDelta = 0;
 // Separate deltas for topbar hide/show thresholding
 let tbUpDelta = 0;
 let tbDownDelta = 0;
-let topbarCollapsed = false;
+let topbarCollapsed = false; // legacy flag (no longer used for motion)
+let tabbarHidden = false;    // legacy flag (replaced by transform-based motion)
+// Scroll-linked UI chrome offsets
+let uiOffsetPx = 0; // 0..(topbarH or tabbarH) on mobile; 0..(topbarH+tabbarH) on desktop
+let topbarH = 0;
+let tabbarH = 0;
 let rbEnrichIO = null;
 // Basic UA check for iOS Safari constraints (webm unsupported, stricter cross-origin media)
 const IS_IOS = (()=>{ try{ return /iphone|ipad|ipod/.test((navigator.userAgent||'').toLowerCase()); }catch{ return false; } })();
@@ -82,6 +87,8 @@ export function initFeed(domRefs){
   applyTheme();
   applyColumns();
   applyTopbarPref();
+  // Ensure measurements and transforms are initialized for desktop attach
+  try{ ensureChromeMeasurements(); applyChromeTransforms(0, isDesktopLayout()); }catch{}
   // Position underline for initial tab after main calls switchTab
   setTimeout(() => updateTabUnderline(), 0);
 
@@ -1210,9 +1217,13 @@ export function onScroll(){
   els.scrollProgress.style.width = (pct*100).toFixed(1) + '%';
   const dy = y - lastScrollY;
   const dir = dy > 0 ? 1 : (dy < 0 ? -1 : direction);
+  const isDesktop = isDesktopLayout();
+  // Update measurements when needed
+  ensureChromeMeasurements();
   // Respect preference: keep expanded when auto-hide disabled
   if (!settings?.autoHideTopbar){
-    expandTopbar();
+    uiOffsetPx = 0;
+    applyChromeTransforms(0, isDesktop);
     // still update progress, button, and lastScroll
   }
   // Distance thresholds to avoid instant show/hide on tiny scrolls
@@ -1227,18 +1238,21 @@ export function onScroll(){
   if (dir < 0 && y > showThreshold && upDelta >= showMinDelta) { showToTopBtn(); upDelta = 0; }
   if ((dir > 0 && downDelta >= hideMinDelta) || nearTop) { hideToTopBtn(); downDelta = 0; }
 
-  // Topbar collapse/expand with smaller thresholds
+  // Scroll-linked motion for top/bottom bars
   const tbNearTop = y < 60;
-  // accumulate for topbar independently
-  if (dy < 0) { tbUpDelta += -dy; tbDownDelta = 0; }
-  else if (dy > 0) { tbDownDelta += dy; tbUpDelta = 0; }
-  const tbShowMin = 40; // px to scroll up to expand
-  const tbHideMin = 60; // px to scroll down to collapse
-  if (settings?.autoHideTopbar){
-    if (tbNearTop) { expandTopbar(); tbUpDelta = tbDownDelta = 0; }
-    else if (dir > 0 && tbDownDelta >= tbHideMin) { collapseTopbar(); tbDownDelta = 0; }
-    else if (dir < 0 && tbUpDelta >= tbShowMin) { expandTopbar(); tbUpDelta = 0; }
+  if (isDesktop){
+    // Desktop: start sliding after a threshold; slide proportionally as you keep scrolling
+    const threshold = 240; // px: when to begin hiding
+    const total = Math.max(0, topbarH + tabbarH);
+    const off = clamp(y - threshold, 0, total);
+    uiOffsetPx = off;
+  } else {
+    // Mobile: interactive hide/reveal with scroll delta
+    const maxHide = Math.max(topbarH, tabbarH);
+    if (tbNearTop) uiOffsetPx = 0; // fully reveal at the very top
+    uiOffsetPx = clamp(uiOffsetPx + dy, 0, maxHide);
   }
+  applyChromeTransforms(uiOffsetPx, isDesktop);
   direction = dir;
   lastScrollY = y;
 }
@@ -1281,7 +1295,113 @@ export function applyTopbarPref(){
     topbarCollapsed = false;
     try{ els.topbar?.classList.remove('collapsed'); }catch{}
   }
+  // Reset transforms when pref toggles off
+  ensureChromeMeasurements();
+  applyChromeTransforms(0, isDesktopLayout());
 }
+
+// ---- Helpers for smoother header/tabbar behavior ----
+// Measure the full natural height of the topbar (unclipped),
+// independent of the current clip/transform used for scroll-hiding.
+function getTopbarHeight(){
+  const top = els.topbar; if (!top) return 0;
+  try{
+    const prevHeight = top.style.height;
+    const prevOverflow = top.style.overflow;
+    const prevClip = top.style.getPropertyValue('--topbar-clip');
+    top.classList.add('no-anim');
+    // Ensure fully revealed and not clipping for measurement
+    top.style.setProperty('--topbar-clip', '0px');
+    top.style.height = 'auto';
+    top.style.overflow = 'visible';
+    // Force reflow
+    void top.offsetHeight;
+    const h = Math.round(top.scrollHeight || top.getBoundingClientRect().height || 0);
+    // Restore
+    if (prevHeight) top.style.height = prevHeight; else top.style.removeProperty('height');
+    if (prevOverflow) top.style.overflow = prevOverflow; else top.style.removeProperty('overflow');
+    if (prevClip) top.style.setProperty('--topbar-clip', prevClip); else top.style.removeProperty('--topbar-clip');
+    top.classList.remove('no-anim');
+    return h;
+  }catch{ return 0; }
+}
+function getMeasuredTopbarHeight(collapsed){
+  const top = els.topbar; if (!top) return 0;
+  try{
+    const wasCollapsed = top.classList.contains('collapsed');
+    top.classList.add('no-anim');
+    // Toggle to target state without transitions and measure
+    top.classList.toggle('collapsed', !!collapsed);
+    // Force reflow before measuring
+    void top.offsetHeight;
+    const h = Math.round(top.getBoundingClientRect().height || 0);
+    // Restore original state
+    top.classList.toggle('collapsed', wasCollapsed);
+    void top.offsetHeight;
+    top.classList.remove('no-anim');
+    return h;
+  }catch{ return getTopbarHeight(); }
+}
+function hideTabbar(){
+  if (tabbarHidden) return;
+  tabbarHidden = true;
+  try{ els.tabbar?.classList.add('hidden'); }catch{}
+}
+function showTabbar(){
+  if (!tabbarHidden) return;
+  tabbarHidden = false;
+  try{ els.tabbar?.classList.remove('hidden'); }catch{}
+}
+
+function isDesktopLayout(){
+  try{ return window.matchMedia('(min-width: 900px)').matches; }catch{ return window.innerWidth >= 900; }
+}
+
+function ensureChromeMeasurements(){
+  const th = getTopbarHeight();
+  const tb = (()=>{ try{ return Math.round((els.tabbar?.getBoundingClientRect().height) || 0); }catch{ return 0; } })();
+  if (th !== topbarH || tb !== tabbarH){
+    topbarH = th; tabbarH = tb;
+    try{ document.documentElement.style.setProperty('--topbar-h', th + 'px'); }catch{}
+  }
+}
+
+function applyChromeTransforms(offsetPx, isDesktop){
+  const top = els.topbar, tab = els.tabbar;
+  if (!top || !tab){ return; }
+  const th = topbarH || getTopbarHeight();
+  const bh = tabbarH || (tab.getBoundingClientRect().height || 0);
+  let topClip = 0, tabT = 0, topO = 1, tabO = 1;
+  if (!settings?.autoHideTopbar){
+    // Fully visible
+    topClip = 0; tabT = 0; topO = 1; tabO = 1;
+  } else if (isDesktop){
+    // Desktop: slide up after threshold; offsetPx in [0, th+bh]
+    const off = clamp(offsetPx, 0, Math.max(0, th + bh));
+    topClip = Math.min(off, th);
+    tabT = -off;
+    topO = 1 - clamp(topClip / (th || 1), 0, 1);
+    // tabbar fades only when it starts leaving (after topbar fully hidden)
+    const tabOff = Math.max(0, off - th);
+    tabO = 1 - clamp(tabOff / (bh || 1), 0, 1);
+  } else {
+    // Mobile: interactive with scroll delta; offsetPx in [0, max(th,bh)]
+    const off = clamp(offsetPx, 0, Math.max(th, bh));
+    topClip = Math.min(off, th);
+    tabT = +Math.min(off, bh);
+    topO = 1 - clamp(topClip / (th || 1), 0, 1);
+    tabO = 1 - clamp(off / (bh || 1), 0, 1);
+  }
+  try{
+    top.style.setProperty('--topbar-clip', `${topClip}px`);
+    top.style.setProperty('--topbar-opacity', `${topO}`);
+    tab.style.setProperty('--tabbar-translate', `${tabT}px`);
+    tab.style.setProperty('--tabbar-opacity', `${tabO}`);
+  }catch{}
+}
+
+// Keep transforms correct on resize
+window.addEventListener('resize', () => { ensureChromeMeasurements(); applyChromeTransforms(uiOffsetPx, isDesktopLayout()); });
 
 
 

@@ -1,8 +1,8 @@
-import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20250926';
-import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20250926';
-import { API, parseTagXML, fetchText } from '../core/api.js?v=20250926';
-import { renderChipsFix, normalizeTag } from './search.js?v=20250926';
-import { applyTheme, applyColumns, applyTopbarPref } from './feed.js?v=20250926';
+import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20251007';
+import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20251007';
+import { API, parseTagXML, fetchText } from '../core/api.js?v=20251007';
+import { renderChipsFix, normalizeTag } from './search.js?v=20251007';
+import { applyTheme, applyColumns, applyTopbarPref } from './feed.js?v=20251007';
 
 let els;
 let dataMsgTimer = 0;

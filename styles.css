@@ -60,6 +60,9 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
   position: sticky; top: 0; z-index: 80;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  /* Only reserve visible portion of header; keep at least progress bar height */
+  height: max(var(--progress-h, 3px), calc(var(--topbar-h, 0px) - var(--topbar-clip, 0px)));
   /* Respect iOS safe areas so the settings button is tappable */
   padding: 8px 12px 6px;
   padding-top: calc(8px + constant(safe-area-inset-top));
@@ -68,6 +71,18 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
   padding-right: calc(12px + env(safe-area-inset-right));
   transition: padding .22s ease;
 }
+/* Move/fade content only (not progress bar) */
+.topbar > .brand,
+.topbar > .searchbox,
+.topbar > .search-options,
+.topbar > #tag-chips{
+  transform: translateY(calc(-1 * var(--topbar-clip, 0px)));
+  opacity: var(--topbar-opacity, 1);
+  will-change: transform, opacity;
+  transition: transform .16s ease-out, opacity .12s linear;
+}
+/* Disable transitions for measurement without visual flicker */
+.topbar.no-anim, .topbar.no-anim *{ transition: none !important; animation: none !important; }
 .topbar .searchbox,
 .topbar .search-options,
 .topbar #tag-chips{
@@ -225,13 +240,19 @@ html.no-scroll, body.no-scroll{ overflow: hidden; }
 .chip.tag-artist{background: linear-gradient(180deg, color-mix(in oklab, #3b82f6 12%, var(--bg-elev)), var(--bg-elev)); border-color: #3b82f6}
 
 .scroll-progress{height:3px; background: transparent; margin-top:6px}
+.topbar .scroll-progress{ position:absolute; left:0; right:0; bottom:0; height: var(--progress-h, 3px); margin:0 }
 .scroll-progress>div{height:100%; width:0; background: var(--accent); transition: width .12s linear}
 
 .tabbar{
   position: fixed; bottom:0; left:0; right:0; z-index:25; display:flex;
   border-top:1px solid var(--border); background: var(--bg);
   padding-bottom: calc(4px + env(safe-area-inset-bottom));
+  transform: translateY(var(--tabbar-translate, 0px));
+  opacity: var(--tabbar-opacity, 1);
+  will-change: transform, opacity;
+  transition: transform .16s ease-out, opacity .12s linear;
 }
+.tabbar.hidden{ transform: translateY(100%); }
 .tabbar .tab{flex:1; padding:12px 8px; background:none; color:var(--text); border:none; font-weight:600}
 .tabbar .tab.active{color:var(--accent)}
 
@@ -569,7 +590,7 @@ a.icon-btn:hover, a.icon-btn:active, a.icon-btn:focus{ text-decoration:none }
 
 /* Desktop tweaks */
 @media (min-width: 900px){
-  .tabbar{position: sticky; bottom: auto; top: 0; justify-content: flex-start; gap:8px; border-bottom:1px solid var(--border); border-top:none}
+  .tabbar{position: sticky; bottom: auto; top: calc(var(--topbar-h, 0px) - var(--topbar-clip, 0px)); justify-content: flex-start; gap:8px; border-bottom:1px solid var(--border); border-top:none}
   .app{padding-bottom:0}
 }
 .settings .provider-dd{ border:none !important; background: transparent !important; padding: 0 !important; }

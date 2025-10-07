@@ -1,8 +1,8 @@
-import { $, $$, enableSheetDrag } from './core/utils.js?v=20250926';
-import { settings, session } from './core/state.js?v=20250926';
-import { initSearch, getSearchState, onAutocomplete as triggerAutocomplete } from './ui/search.js?v=20250926';
-import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js?v=20250926';
-import { initSettings, showSettings, hideSettings } from './ui/settings.js?v=20250926';
+import { $, $$, enableSheetDrag } from './core/utils.js?v=20251007';
+import { settings, session } from './core/state.js?v=20251007';
+import { initSearch, getSearchState, onAutocomplete as triggerAutocomplete } from './ui/search.js?v=20251007';
+import { initFeed, switchTab, loadNext, resetSearchPagination, hideTagsOverlay, getActiveTab, clearFeed } from './ui/feed.js?v=20251007';
+import { initSettings, showSettings, hideSettings } from './ui/settings.js?v=20251007';
 
 const els = {
   feed: $('#feed'),
