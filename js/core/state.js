@@ -4,15 +4,20 @@ export const LS = {
   settings: 'r34:settings',
   favorites: 'r34:favorites',
   groups: 'r34:groups',
-  filters: 'r34:filters'
+  filters: 'r34:filters',
+  savedSearches: 'r34:savedSearches',
+  recentTags: 'r34:recentTags'
 };
 
 export const DEFAULTS = {
   settings: {
     columns: 1,
     theme: 'system',
-    accent: '#7c3aed',
+    accent: '#2ec4b6',
     autoHideTopbar: true,
+    stickyTopbar: true,
+    // Suggested feed tuning: 0 (explore) -> 100 (personalized)
+    suggestTuning: 65,
     // Data source: 'rule34' | 'realbooru'
     provider: 'rule34',
     // Optional CORS proxy prefix (e.g. https://r.jina.ai/http/)
@@ -37,7 +42,9 @@ export const DEFAULTS = {
   favorites: {
     ids: [], // array for stable order
     map: {}, // id -> post
-  }
+  },
+  savedSearches: [],
+  recentTags: []
 };
 
 export function loadLS(key, fallback){
@@ -49,6 +56,8 @@ export let settings = loadLS(LS.settings, DEFAULTS.settings);
 export let filters = loadLS(LS.filters, DEFAULTS.filters);
 export let groups = loadLS(LS.groups, DEFAULTS.groups);
 export let favorites = loadLS(LS.favorites, DEFAULTS.favorites);
+export let savedSearches = loadLS(LS.savedSearches, DEFAULTS.savedSearches);
+export let recentTags = loadLS(LS.recentTags, DEFAULTS.recentTags);
 
 export const favSet = new Set(favorites.ids);
 
@@ -65,15 +74,21 @@ export function setSettings(next){ settings = next; saveLS(LS.settings, settings
 export function setFilters(next){ filters = next; saveLS(LS.filters, filters); }
 export function setGroups(next){ groups = next; saveLS(LS.groups, groups); }
 export function setFavorites(next){ favorites = next; saveLS(LS.favorites, favorites); favSet.clear(); favorites.ids.forEach(id=>favSet.add(id)); }
+export function setSavedSearches(next){ savedSearches = next; saveLS(LS.savedSearches, savedSearches); }
+export function setRecentTags(next){ recentTags = next; saveLS(LS.recentTags, recentTags); }
 
 export function resetAllData(){
   localStorage.removeItem(LS.settings);
   localStorage.removeItem(LS.groups);
   localStorage.removeItem(LS.favorites);
   localStorage.removeItem(LS.filters);
+  localStorage.removeItem(LS.savedSearches);
+  localStorage.removeItem(LS.recentTags);
   settings = loadLS(LS.settings, DEFAULTS.settings);
   filters = loadLS(LS.filters, DEFAULTS.filters);
   groups = loadLS(LS.groups, DEFAULTS.groups);
   favorites = loadLS(LS.favorites, DEFAULTS.favorites);
+  savedSearches = loadLS(LS.savedSearches, DEFAULTS.savedSearches);
+  recentTags = loadLS(LS.recentTags, DEFAULTS.recentTags);
   favSet.clear();
 }

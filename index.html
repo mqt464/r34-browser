@@ -14,79 +14,135 @@
     <meta name="apple-mobile-web-app-title" content="R34 Browser" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#0b0b0e" />
+    <meta name="theme-color" content="#0c0d12" />
   </head>
   <body>
     <div id="app" class="app">
       <header class="topbar">
-        <div class="brand">
-          <span class="logo">R34</span>
-          <span class="sep">•</span>
-          <span class="title">Browser</span>
-          <span style="flex:1"></span>
-          <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Open settings">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20" height="20" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"
-              aria-hidden="true" focusable="false"
-            >
-              <!-- Sliders (settings) icon -->
-              <line x1="6"  y1="4"  x2="6"  y2="20" />
-              <line x1="12" y1="4"  x2="12" y2="20" />
-              <line x1="18" y1="4"  x2="18" y2="20" />
-              <circle cx="6"  cy="10" r="2" />
-              <circle cx="12" cy="14" r="2" />
-              <circle cx="18" cy="8"  r="2" />
-            </svg>
-          </button>
-        </div>
+        <div class="topbar-inner">
+          <div class="brand">
+            <div class="brand-left">
+              <span class="logo">R34</span>
+              <span class="title">Browser</span>
+            </div>
+          </div>
 
-        <div class="searchbox" role="search">
-          <button id="provider-toggle" class="provider-btn" title="Change provider" aria-label="Change provider">R34</button>
-          <input id="search-input" type="text" placeholder="Search tags… (press Enter to add, then press Search)" autocomplete="off" />
-          <button id="search-go" class="btn" title="Search">Search</button>
-          <div id="autocomplete" class="autocomplete" hidden></div>
-        </div>
+          <div class="home-switch" role="tablist" aria-label="Home feed switcher">
+            <button class="pill active" data-home="suggested" role="tab" aria-selected="true">For you</button>
+            <button class="pill" data-home="following" role="tab" aria-selected="false">Following</button>
+            <button id="home-manage" class="icon-btn subtle" title="Manage feeds" aria-label="Manage feeds">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+          </div>
 
-        <div class="search-options" aria-label="Search options">
-          <label>
-            Sort
-            <select id="search-sort">
-              <option value="default">Default</option>
-              <option value="new">Newest</option>
-              <option value="old">Oldest</option>
-              <option value="score_desc">Score (high→low)</option>
-              <option value="score_asc">Score (low→high)</option>
-              <option value="random">Random</option>
-            </select>
-          </label>
-          <label>
-            Min score
-            <input id="search-min-score" type="number" inputmode="numeric" min="0" step="1" placeholder="0" />
-          </label>
+          <div class="search-panel" role="search" aria-label="Search">
+            <div class="searchbox">
+              <button id="provider-toggle" class="provider-btn" title="Change provider" aria-label="Change provider">R34</button>
+              <input id="search-input" type="text" placeholder="Search tags. Press Enter to add." autocomplete="off" />
+              <button id="search-go" class="btn" title="Search">Search</button>
+              <div id="autocomplete" class="autocomplete" hidden></div>
+            </div>
+
+            <div class="search-actions">
+              <button id="search-save" class="btn ghost" type="button">Save search</button>
+              <button id="search-advanced-toggle" class="btn ghost" type="button" aria-expanded="false">Advanced</button>
+            </div>
+
+            <div id="search-advanced" class="search-advanced" aria-label="Search options" hidden>
+              <label>
+                Sort
+                <select id="search-sort">
+                  <option value="default">Default</option>
+                  <option value="new">Newest</option>
+                  <option value="old">Oldest</option>
+                  <option value="score_desc">Score (high-low)</option>
+                  <option value="score_asc">Score (low-high)</option>
+                  <option value="random">Random</option>
+                </select>
+              </label>
+              <label>
+                Min score
+                <input id="search-min-score" type="number" inputmode="numeric" min="0" step="1" placeholder="0" />
+              </label>
+            </div>
+
+            <div id="tag-chips" class="chips small" aria-live="polite"></div>
+
+            <div class="search-block">
+              <div class="search-block-head">
+                <span>Saved searches</span>
+              </div>
+              <div id="saved-searches" class="saved-list"></div>
+            </div>
+
+            <div class="search-block">
+              <div class="search-block-head">
+                <span>Recent tags</span>
+                <button id="recent-clear" class="btn ghost small" type="button">Clear</button>
+              </div>
+              <div id="recent-tags" class="chips small"></div>
+            </div>
+          </div>
         </div>
-        <div id="tag-chips" class="chips small" aria-live="polite"></div>
 
         <div id="scroll-progress" class="scroll-progress"><div></div></div>
       </header>
 
-      <nav class="tabbar">
-        <button class="tab active" data-tab="home" title="Home">Home</button>
-        <button class="tab" data-tab="search" title="Search">Search</button>
-        <button class="tab" data-tab="favorites" title="Favorites">Favorites</button>
+      <nav class="tabbar" aria-label="Primary">
+        <button class="tab active" data-tab="home" title="Home">
+          <span class="tab-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 11l9-8 9 8" />
+              <path d="M5 10v10h14V10" />
+            </svg>
+          </span>
+          <span class="tab-label">Home</span>
+        </button>
+        <button class="tab" data-tab="search" title="Search">
+          <span class="tab-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </span>
+          <span class="tab-label">Search</span>
+        </button>
+        <button class="tab" data-tab="favorites" title="Favorites">
+          <span class="tab-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" />
+            </svg>
+          </span>
+          <span class="tab-label">Favorites</span>
+        </button>
+        <button class="tab" data-tab="settings" title="Settings">
+          <span class="tab-icon" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </span>
+          <span class="tab-label">Settings</span>
+        </button>
       </nav>
 
       <main id="main" class="main">
         <section id="feed" class="feed single" data-columns="1"></section>
-        <div id="feed-end" class="feed-end" hidden>End reached — no more results.</div>
+        <section id="settings-page" class="settings-page" hidden></section>
+        <section id="viz-page" class="viz-page" hidden></section>
+        <div id="feed-end" class="feed-end" hidden>End reached - no more results.</div>
         <div id="sentinel" class="sentinel" aria-hidden="true"></div>
       </main>
 
-      <button id="to-top" class="to-top" hidden title="Back to top">▲</button>
-
-      <!-- Context menu overlay removed per request -->
+      <button id="to-top" class="to-top" hidden title="Back to top" aria-label="Back to top">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <polyline points="6 15 12 9 18 15" />
+        </svg>
+      </button>
 
       <!-- Tags detail overlay -->
       <div id="tags-overlay" class="overlay" hidden>
@@ -100,142 +156,389 @@
         </div>
       </div>
 
-      <!-- Settings overlay -->
-      <div id="settings-overlay" class="overlay center" hidden>
-        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <!-- Feeds manager overlay -->
+      <div id="feeds-overlay" class="overlay center" hidden>
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="feeds-title">
           <div class="grab"></div>
           <div class="sheet-header">
-            <div id="settings-title" class="sheet-title">Settings</div>
-            <button id="settings-close" class="btn icon" aria-label="Close settings">✕</button>
+            <div id="feeds-title" class="sheet-title">Manage feeds</div>
+            <button id="feeds-close" class="btn icon" aria-label="Close feed manager">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
-          <div id="settings-container" class="sheet-body"></div>
+          <div class="sheet-body">
+            <div class="feed-manager">
+              <div class="feed-manager-head">
+                <div class="note">Create feeds from tag groups. Include tags, and prefix a tag with "-" to exclude.</div>
+                <button id="feeds-add" class="btn action">Add feed</button>
+              </div>
+              <div id="feeds-list" class="feeds-list"></div>
+            </div>
+          </div>
         </div>
       </div>
-
       <!-- Settings panel (renders into main area when tab active) -->
       <template id="tpl-settings">
-        <section class="settings">
-          <h2 class="settings-title">Settings</h2>
+        <section class="settings-view">
+          <div class="settings-shell">
+            <aside class="settings-sidebar">
+              <div class="settings-title">Settings</div>
+              <div class="note">Manage appearance, feed behavior, and data.</div>
+              <nav class="settings-nav" aria-label="Settings sections">
+                <button class="nav-item active" data-target="sec-appearance" type="button">Appearance</button>
+                <button class="nav-item" data-target="sec-home" type="button">Home feed</button>
+                <button class="nav-item" data-target="sec-search" type="button">Search</button>
+                <button class="nav-item" data-target="sec-filters" type="button">Filters</button>
+                <button class="nav-item" data-target="sec-data" type="button">Data</button>
+                <button class="nav-item" data-target="sec-api" type="button">API</button>
+                <button class="nav-item" data-target="sec-analytics" type="button">Analytics</button>
+                <button class="nav-item" data-target="sec-visual" type="button">Graph view</button>
+              </nav>
+            </aside>
 
-          <div class="card">
-            <h3>Content Filters</h3>
-            <div class="fields">
-              <div>
-                <label class="switch">
-                  <input id="f-ai" type="checkbox" />
-                  <span class="switch-ui" aria-hidden="true"></span>
-                  <span class="label">Exclude AI-generated content</span>
-                </label>
-                <div class="note">Blocks common AI tags.</div>
-                <div id="f-ai-tags" class="codebox" aria-hidden="true"></div>
-              </div>
-              <div>
-                <label class="switch">
-                  <input id="f-scat" type="checkbox" />
-                  <span class="switch-ui" aria-hidden="true"></span>
-                  <span class="label">Exclude scat</span>
-                </label>
-                <div class="note">Blocks feces-related tags.</div>
-                <div id="f-scat-tags" class="codebox" aria-hidden="true"></div>
-              </div>
-              <div>
-                <label class="switch">
-                  <input id="f-shota" type="checkbox" />
-                  <span class="switch-ui" aria-hidden="true"></span>
-                  <span class="label">Exclude shota/loli</span>
-                </label>
-                <div class="note">Blocks shota/loli related tags.</div>
-                <div id="f-shota-tags" class="codebox" aria-hidden="true"></div>
-              </div>
-              <div>
-                <h4 style="margin:8px 0 6px 0">Custom exclusions</h4>
-                <div class="note">Add your own tags to exclude. These are applied to all searches and the home feed.</div>
-                <div class="row">
-                  <input id="f-custom-input" type="text" placeholder="Add a tag to exclude (e.g. futanari)" style="flex:1" />
-                  <button id="f-custom-add" class="btn">Add</button>
+            <div class="settings-main">
+              <section id="sec-appearance" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Appearance</h3>
+                  <p class="note">Tune layout density, theme, and navigation behavior.</p>
                 </div>
-                <div id="f-custom-list" class="codebox" aria-live="polite"></div>
-              </div>
-            </div>
-          </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Columns</div>
+                      <div class="note">Pick how many columns show in the feed.</div>
+                    </div>
+                    <div class="row-control range">
+                      <input id="opt-columns" type="range" min="1" max="4" step="1" />
+                      <div id="opt-columns-val" class="note">1</div>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Theme</div>
+                      <div class="note">Follow system, or force dark or light.</div>
+                    </div>
+                    <div class="row-control">
+                      <select id="opt-theme">
+                        <option value="system">System</option>
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Accent</div>
+                      <div class="note">Choose a highlight color.</div>
+                    </div>
+                    <div class="row-control">
+                      <input id="opt-accent" type="color" value="#7c3aed" />
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Sticky top bar</div>
+                      <div class="note">Keep navigation visible while scrolling.</div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="opt-sticky-topbar" type="checkbox" aria-label="Sticky top bar" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Sticky top bar</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Auto-hide top bar</div>
+                      <div class="note">Hide the bar while scrolling down.</div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="opt-auto-hide-topbar" type="checkbox" aria-label="Auto-hide top bar" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Auto-hide top bar</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-          <div class="card">
-            <h3>Appearance</h3>
-            <div class="row fields">
-              <label class="stack" style="flex:1">Columns
-                <input id="opt-columns" type="range" min="1" max="4" step="1" />
-                <span id="opt-columns-val"></span>
-              </label>
-              <label class="stack" style="flex:1">Theme
-                <select id="opt-theme">
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-              </label>
-              <label class="stack" style="flex:1">Accent
-                <input id="opt-accent" type="color" />
-              </label>
-            </div>
-            <div class="row">
-              <label class="switch">
-                <input id="opt-auto-hide-topbar" type="checkbox" />
-                <span class="switch-ui" aria-hidden="true"></span>
-                <span class="label">Auto-hide search on scroll</span>
-              </label>
-            </div>
-            <div class="note">Hides the search bar and options while scrolling down. Scroll up a bit to reveal.</div>
-          </div>
+              <section id="sec-home" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Home feed</h3>
+                  <p class="note">Control how suggested posts are mixed in.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Tune suggestions</div>
+                      <div class="note">Lower values explore more, higher values stick to favorites.</div>
+                    </div>
+                    <div class="row-control range">
+                      <input id="opt-suggest-tuning" type="range" min="0" max="100" step="1" />
+                      <div id="opt-suggest-tuning-val" class="note">65</div>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Following feeds</div>
+                      <div id="feeds-summary" class="note">No feeds yet.</div>
+                    </div>
+                    <div class="row-control">
+                      <button id="feeds-manage" class="btn" type="button">Manage feeds</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-          <div class="card">
-            <h3>Subscribed Tag Groups</h3>
-            <p class="note">Home aggregates posts from each group. Add tags to include; prefix a tag with “-” to exclude. Use the arrow to expand/collapse a group. Click a tag to toggle include/exclude; long‑press a tag to remove.</p>
-            <div id="groups"></div>
-            <button id="group-add" class="btn">Add group</button>
-          </div>
+              <section id="sec-search" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Search</h3>
+                  <p class="note">Saved searches and recent tags live in the Search tab.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Tips</div>
+                      <div class="note">Use Advanced to keep the search panel compact and save favorite tag sets.</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-          <div class="card">
-            <h3>Analytics</h3>
-            <div id="analytics" class="analytics"></div>
-          </div>
+              <section id="sec-filters" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Content filters</h3>
+                  <p class="note">Hide categories you do not want to see.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Exclude AI-generated content</div>
+                      <div class="note">Blocks common AI tags.</div>
+                      <div id="f-ai-tags" class="codebox" aria-hidden="true"></div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="f-ai" type="checkbox" aria-label="Exclude AI-generated content" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Exclude AI-generated content</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Exclude scat content</div>
+                      <div class="note">Blocks scat-related tags.</div>
+                      <div id="f-scat-tags" class="codebox" aria-hidden="true"></div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="f-scat" type="checkbox" aria-label="Exclude scat content" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Exclude scat content</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Exclude shota or loli</div>
+                      <div class="note">Blocks shota and loli tags.</div>
+                      <div id="f-shota-tags" class="codebox" aria-hidden="true"></div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="f-shota" type="checkbox" aria-label="Exclude shota or loli" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Exclude shota or loli</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Custom exclusions</div>
+                      <div class="note">Add your own tags to exclude across searches and the home feed.</div>
+                    </div>
+                    <div class="row-control stack full">
+                      <div class="row">
+                        <input id="f-custom-input" type="text" placeholder="Enter tag to exclude" />
+                        <button id="f-custom-add" class="btn" type="button">Add</button>
+                      </div>
+                      <div id="f-custom-list" class="codebox" aria-live="polite"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
-          <div class="card">
-            <h3>Data</h3>
-            <p class="note">Export saves your app data (settings, groups, favorites, filters). Import replaces your current data with a JSON backup. Reset clears everything.</p>
-            <div class="row">
-              <button id="data-copy" class="btn">Copy</button>
-              <button id="data-export" class="btn">Export</button>
-              <label class="btn">
-                Import <input id="data-import" type="file" accept="application/json" hidden />
-              </label>
-              <button id="data-reset" class="btn danger">Reset</button>
+              <section id="sec-data" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Data</h3>
+                  <p class="note">Export saves your app data. Import replaces your current data with a JSON backup.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Export or reset</div>
+                      <div class="note">Reset clears everything on this device.</div>
+                    </div>
+                    <div class="row-control stack">
+                      <div class="row">
+                        <button id="data-copy" class="btn" type="button">Copy</button>
+                        <button id="data-export" class="btn" type="button">Export</button>
+                        <label class="btn">
+                          Import <input id="data-import" type="file" accept="application/json" hidden />
+                        </label>
+                        <button id="data-reset" class="btn danger" type="button">Reset</button>
+                      </div>
+                      <div id="data-msg" class="note" aria-live="polite"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section id="sec-api" class="settings-panel">
+                <div class="panel-head">
+                  <h3>API access</h3>
+                  <p class="note">Enter your Rule34 User ID and API key. Find them at Account - Options: https://rule34.xxx/index.php?page=account&amp;s=options</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Default provider</div>
+                      <div class="note">Choose which source is used for Home and Search.</div>
+                    </div>
+                    <div class="row-control">
+                      <div class="provider-dd">
+                        <button id="opt-provider-dd" class="prov-dd" type="button" aria-haspopup="listbox" aria-expanded="false">
+                          <img alt="" />
+                          <span class="lbl"></span>
+                          <span class="caret" aria-hidden="true">v</span>
+                        </button>
+                        <div class="prov-menu" role="listbox" hidden>
+                          <button class="item" data-prov="rule34" role="option"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
+                          <button class="item" data-prov="realbooru" role="option"><img src="icons/RealBooru.png" alt="" /><span>RealBooru</span></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">CORS proxy</div>
+                      <div class="note">Proxies are required for RealBooru search and autocomplete.</div>
+                    </div>
+                    <div class="row-control stack">
+                      <div class="proxy-wrap">
+                        <div class="input-wrap">
+                          <input id="opt-proxy" type="text" placeholder="https://r.jina.ai/http/ or https://cors.isomorphic-git.org/" />
+                          <span class="input-spinner" aria-hidden="true"></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Proxy media</div>
+                      <div class="note">Use the proxy for images and videos when needed.</div>
+                    </div>
+                    <div class="row-control">
+                      <label class="switch">
+                        <input id="opt-proxy-images" type="checkbox" aria-label="Use proxy for media" />
+                        <span class="switch-ui" aria-hidden="true"></span>
+                        <span class="label sr-only">Use proxy for media</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Rule34 credentials</div>
+                      <div class="note">Required for higher request limits.</div>
+                    </div>
+                    <div class="row-control split">
+                      <label class="stack">User ID
+                        <input id="opt-user-id" type="text" inputmode="numeric" placeholder="Your Rule34 user id" />
+                      </label>
+                      <label class="stack">API Key
+                        <input id="opt-api-key" type="text" placeholder="Your Rule34 API key" />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section id="sec-analytics" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Analytics</h3>
+                  <p class="note">Your local favorites overview.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row compact">
+                    <div class="row-control full">
+                      <div id="analytics" class="analytics"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section id="sec-visual" class="settings-panel">
+                <div class="panel-head">
+                  <h3>Graph view</h3>
+                  <p class="note">Explore the algorithm as a node graph.</p>
+                </div>
+                <div class="panel-list">
+                  <div class="panel-row">
+                    <div class="row-text">
+                      <div class="row-title">Algorithm graph</div>
+                      <div class="note">Open the full-screen graph view.</div>
+                    </div>
+                    <div class="row-control">
+                      <button id="open-viz" class="btn action" type="button">Open graph view</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
-            <div id="data-msg" class="note" aria-live="polite"></div>
-          </div>
-
-          <div class="card">
-            <h3>API Access</h3>
-            <p class="note">Enter your Rule34 <b>User ID</b> and <b>API key</b>. Find/generate them at Account → Options: https://rule34.xxx/index.php?page=account&amp;s=options</p>
-            <div class="row fields">
-              <label class="stack" style="flex:1">User ID
-                <input id="opt-user-id" type="text" inputmode="numeric" placeholder="Your Rule34 user id" />
-              </label>
-              <label class="stack" style="flex:2">API Key
-                <input id="opt-api-key" type="text" placeholder="Your Rule34 API key" />
-              </label>
-            </div>
-            
           </div>
         </section>
       </template>
+
+      <template id="tpl-viz">
+        <section class="viz-view">
+          <div class="viz-shell">
+            <div class="viz-head">
+              <button id="viz-back" class="btn ghost" type="button">Back to settings</button>
+              <div class="viz-title">Graph view</div>
+              <p class="note">Nodes scale by weight, links show relationships.</p>
+              <div class="viz-legend" aria-label="Tag legend">
+                <div class="key"><span class="swatch character"></span>Character</div>
+                <div class="key"><span class="swatch copyright"></span>Copyright</div>
+                <div class="key"><span class="swatch artist"></span>Artist</div>
+                <div class="key"><span class="swatch general"></span>General</div>
+                <div class="key"><span class="swatch meta"></span>Meta</div>
+              </div>
+            </div>
+            <div class="viz-stage">
+              <canvas id="viz-canvas"></canvas>
+            </div>
+          </div>
+        </section>
+      </template>
+
 
       <template id="tpl-group">
         <div class="group collapsed">
           <div class="group-head">
             <div class="group-title">
               <div class="group-name-row">
-                <button class="group-toggle" aria-expanded="false" title="Expand">▸</button>
-                <input class="group-name" placeholder="Group name" />
+                <button class="group-toggle" aria-expanded="false" title="Expand" aria-label="Expand feed">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+                <input class="group-name" placeholder="Feed name" />
                 <button class="btn group-del" title="Delete group">Delete</button>
               </div>
               <div class="group-summary note"></div>
@@ -243,7 +546,7 @@
           </div>
           <div class="group-tags">
             <div class="searchbox small">
-              <input class="group-search" type="text" placeholder="Add tags to group…" />
+              <input class="group-search" type="text" placeholder="Add tags to feed" />
               <button class="btn group-add-tag">Add</button>
               <div class="autocomplete" hidden></div>
             </div>
@@ -255,5 +558,4 @@
 
     <script type="module" src="js/main.js?v=20251007"></script>
   </body>
-  </html>
-
+</html>

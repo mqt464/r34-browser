@@ -7,6 +7,7 @@ let els;
 let masonryCols = [];
 
 let activeTab = null;
+let homeMode = 'suggested';
 let searchPid = 0; // pagination
 let loading = false;
 let reachedEnd = false;
@@ -16,18 +17,25 @@ let seen = new Set(); // dedupe posts in feed
 // Scroll deltas to debounce slight up/down jiggles
 let upDelta = 0;
 let downDelta = 0;
-// Separate deltas for topbar hide/show thresholding
-let tbUpDelta = 0;
-let tbDownDelta = 0;
-let topbarCollapsed = false; // legacy flag (no longer used for motion)
-let tabbarHidden = false;    // legacy flag (replaced by transform-based motion)
 // Scroll-linked UI chrome offsets
 let uiOffsetPx = 0; // 0..(topbarH or tabbarH) on mobile; 0..(topbarH+tabbarH) on desktop
 let topbarH = 0;
 let tabbarH = 0;
+let topbarRO = null;
+let tabbarRO = null;
 let rbEnrichIO = null;
+const SUGGEST_RECENT_MAX = 10;
+let globalVideoMuted = null;
+let muteSyncLock = false;
 // Basic UA check for iOS Safari constraints (webm unsupported, stricter cross-origin media)
 const IS_IOS = (()=>{ try{ return /iphone|ipad|ipod/.test((navigator.userAgent||'').toLowerCase()); }catch{ return false; } })();
+
+const ICONS = {
+  heart: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"></path></svg>',
+  heartFill: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" focusable="false"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"></path></svg>',
+  tag: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.59 13.41 11 3.83V3H4v7h.83l9.59 9.59a2 2 0 0 0 2.83 0l3.34-3.34a2 2 0 0 0 0-2.83z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>',
+  download: '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+};
 
 // Limit concurrent RealBooru enrich tasks to avoid bursts
 const ENRICH_MAX = 4;
@@ -55,6 +63,19 @@ let home = {
   round: 0,
   pids: {}, // groupId -> pid number
   exhausted: {}, // groupId -> bool
+};
+
+// Suggested feed state
+let suggested = {
+  pid: 0,
+  round: 0,
+  tagPool: [],
+  artistPool: [],
+  recentSeeds: [],
+  recentArtists: [],
+  tagTypes: new Map(),
+  coMap: new Map(),
+  pickState: new Map(),
 };
 
 export function initFeed(domRefs){
@@ -88,7 +109,7 @@ export function initFeed(domRefs){
   applyColumns();
   applyTopbarPref();
   // Ensure measurements and transforms are initialized for desktop attach
-  try{ ensureChromeMeasurements(); applyChromeTransforms(0, isDesktopLayout()); }catch{}
+  try{ setupChromeObservers(); applyChromeTransforms(0, isDesktopLayout()); }catch{}
   // Position underline for initial tab after main calls switchTab
   setTimeout(() => updateTabUnderline(), 0);
 
@@ -125,6 +146,7 @@ export function applyColumns(){
 export function switchTab(name){
   if (activeTab === name) return;
   activeTab = name;
+  try{ document.documentElement.dataset.tab = name; }catch{}
   els.tabs.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   updateTabUnderline();
   // Close overlays on tab change
@@ -134,6 +156,7 @@ export function switchTab(name){
     clearFeed();
     renderFavorites();
   } else if (name === 'home') {
+    try{ document.documentElement.dataset.home = homeMode; }catch{}
     clearFeed();
     resetHome();
     loadNext().catch(()=>{});
@@ -143,6 +166,32 @@ export function switchTab(name){
     const st = getSearchState();
     if ((st.include||[]).length || (st.exclude||[]).length) loadNext();
     else renderEmptyState('Add tags above to start a search.');
+  }
+}
+
+export function setHomeMode(mode){
+  const next = mode === 'following' ? 'following' : 'suggested';
+  if (homeMode === next) return;
+  homeMode = next;
+  try{ document.documentElement.dataset.home = homeMode; }catch{}
+  if (activeTab === 'home'){
+    clearFeed();
+    resetHome();
+    loadNext().catch(()=>{});
+  }
+}
+
+export function refreshSuggested(){
+  suggested.tagPool = [];
+  suggested.artistPool = [];
+  suggested.recentSeeds = [];
+  suggested.recentArtists = [];
+  suggested.coMap = new Map();
+  suggested.pickState = new Map();
+  if (activeTab === 'home' && homeMode === 'suggested'){
+    clearFeed();
+    resetSuggested();
+    loadNext().catch(()=>{});
   }
 }
 
@@ -177,12 +226,44 @@ function renderEmptyState(text){
   els.feed.appendChild(div);
 }
 
+function renderHint(text){
+  const card = document.createElement('article');
+  card.className = 'post-card feed-hint';
+  const body = document.createElement('div');
+  body.className = 'feed-hint-body';
+  body.textContent = text;
+  card.appendChild(body);
+  appendCard(card);
+}
+
 function resetHome(){
+  if (homeMode === 'following') resetFollowing();
+  else resetSuggested();
+}
+
+function resetFollowing(){
   home.round = 0; home.pids = {}; home.exhausted = {};
   if (!groups.length) {
-    renderEmptyState('No tag groups yet. Add some in Settings.');
+    renderEmptyState('No feeds yet. Add some in Manage feeds.');
     reachedEnd = true;
   }
+}
+
+function resetSuggested(){
+  suggested.pid = 0;
+  suggested.round = 0;
+  const pools = buildSuggestedPools();
+  suggested.tagPool = pools.tagPool;
+  suggested.artistPool = pools.artistPool;
+  suggested.coMap = pools.coMap;
+  suggested.pickState = new Map();
+  suggested.recentSeeds = [];
+  suggested.recentArtists = [];
+  if (!suggested.tagPool.length){
+    renderHint('Suggested is random right now. Favorite posts to tune it.');
+  }
+  // Prime artist tags in background for rotation
+  try{ primeSuggestedTagTypes(suggested.tagPool.slice(0, 30).map(t => t.tag)); }catch{}
 }
 
 export async function loadNext(){
@@ -239,37 +320,11 @@ export async function loadNext(){
         searchPid++;
       }
     } else if (activeTab === 'home') {
-      if (!groups.length) { reachedEnd = true; return; }
-      const perGroup = Math.max(2, Math.ceil(settings.perPage / Math.max(1, groups.length)));
-      const buckets = [];
-      let anyFetched = false;
-      for (const g of groups){
-        if (home.exhausted[g.id]) continue;
-        const pid = home.pids[g.id] || 0;
-        const tags = composeTags(g.include||[], g.exclude||[]);
-        try{
-          const data = await API.posts({ tags, limit: perGroup, pid, provider: g.provider || 'rule34' });
-          const posts = sanitizePosts(data);
-          if (!Array.isArray(posts) || posts.length === 0){ home.exhausted[g.id] = true; continue; }
-          anyFetched = true;
-          home.pids[g.id] = pid + 1;
-          const arr = posts.slice();
-          for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
-          buckets.push(arr);
-        }catch{}
+      if (homeMode === 'following') {
+        await loadFollowing();
+      } else {
+        await loadSuggested();
       }
-      const merged = [];
-      let idx = 0;
-      while (merged.length < settings.perPage){
-        let pushed = false;
-        for (const b of buckets){
-          if (b[idx]){ merged.push(b[idx]); pushed = true; if (merged.length >= settings.perPage) break; }
-        }
-        if (!pushed) break;
-        idx++;
-      }
-      const added = renderPosts(merged);
-      if (!anyFetched || added === 0){ reachedEnd = true; }
     } else if (activeTab === 'favorites') {
       // no-op; favorites render in switchTab
     }
@@ -280,7 +335,7 @@ export async function loadNext(){
       d.className = 'feed-end error';
       const msg = String(e?.message||'').toLowerCase();
       if (msg.includes('missing authentication')) {
-        d.innerHTML = 'Missing authentication. Enter your Rule34 user ID and API key in Settings \u001a API.';
+        d.innerHTML = 'Missing authentication. Enter your Rule34 user ID and API key in Settings - API.';
       } else {
         d.innerHTML = 'Could not load posts. Set a CORS proxy and/or API credentials in Settings.';
       }
@@ -291,6 +346,70 @@ export async function loadNext(){
     hideSkeletons();
     els.feedEnd.hidden = !reachedEnd;
     loading = false;
+  }
+}
+
+async function loadFollowing(){
+  if (!groups.length) { reachedEnd = true; return; }
+  const perGroup = Math.max(2, Math.ceil(settings.perPage / Math.max(1, groups.length)));
+  const buckets = [];
+  let anyFetched = false;
+  for (const g of groups){
+    if (home.exhausted[g.id]) continue;
+    const pid = home.pids[g.id] || 0;
+    const tags = composeTags(g.include || [], g.exclude || []);
+    try{
+      const data = await API.posts({ tags, limit: perGroup, pid, provider: g.provider || 'rule34' });
+      const posts = sanitizePosts(data);
+      if (!Array.isArray(posts) || posts.length === 0){ home.exhausted[g.id] = true; continue; }
+      anyFetched = true;
+      home.pids[g.id] = pid + 1;
+      const arr = posts.slice();
+      for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+      buckets.push(arr);
+    }catch{}
+  }
+  const merged = [];
+  let idx = 0;
+  while (merged.length < settings.perPage){
+    let pushed = false;
+    for (const b of buckets){
+      if (b[idx]){ merged.push(b[idx]); pushed = true; if (merged.length >= settings.perPage) break; }
+    }
+    if (!pushed) break;
+    idx++;
+  }
+  const added = renderPosts(merged);
+  if (!anyFetched || added === 0){ reachedEnd = true; }
+}
+
+async function loadSuggested(){
+  const provider = String(settings.provider || 'rule34');
+  const inc = buildSuggestedInclude(provider);
+  const tags = composeTags(inc, []);
+  const data = await API.posts({ tags, limit: settings.perPage, pid: suggested.pid, provider });
+  const posts = sanitizePosts(data);
+  const added = renderPosts(posts);
+  if (added === 0) {
+    suggested.pid++;
+    const d2 = await API.posts({ tags, limit: settings.perPage, pid: suggested.pid, provider });
+    const p2 = sanitizePosts(d2);
+    const a2 = renderPosts(p2);
+    if (a2 === 0 && Array.isArray(p2) && p2.length === 0) {
+      reachedEnd = true;
+      if (!els.feed.querySelector('.feed-end.msg')) {
+        const m = document.createElement('div');
+        m.className = 'feed-end msg';
+        m.textContent = 'No results right now.';
+        els.feed.appendChild(m);
+      }
+    } else {
+      suggested.pid++;
+      suggested.round++;
+    }
+  } else {
+    suggested.pid++;
+    suggested.round++;
   }
 }
 
@@ -306,6 +425,257 @@ function composeTags(include, exclude){
   if (inc.length === 0) inc = ['id:>0'];
   const tags = [...inc, ...ex.map(t => '-' + t)].join(' ');
   return tags;
+}
+
+function buildSuggestedInclude(provider){
+  const inc = [];
+  const bias = clamp(Number(settings?.suggestTuning || 65) / 100, 0, 1);
+  if (!suggested.tagPool.length){
+    const pools = buildSuggestedPools();
+    suggested.tagPool = pools.tagPool;
+    suggested.artistPool = pools.artistPool;
+    suggested.coMap = pools.coMap;
+    suggested.pickState = new Map();
+    try{ primeSuggestedTagTypes(suggested.tagPool.slice(0, 30).map(t => t.tag)); }catch{}
+  }
+  const pool = suggested.tagPool;
+  const poolUse = (bias >= 0.75)
+    ? pool.slice(0, Math.max(20, Math.floor(pool.length * 0.55)))
+    : pool;
+  const artists = suggested.artistPool || [];
+
+  // Rotate in artist tags every few rounds when available
+  if (artists.length && (suggested.round % 3 === 0)){
+    const artist = pickWeightedSimple(artists, suggested.recentArtists);
+    if (artist){
+      inc.push(artist);
+      pushRecent(suggested.recentArtists, artist);
+    }
+  }
+
+  const primary = pickWeightedTag(poolUse, bias, suggested.recentSeeds);
+  if (primary){
+    inc.push(primary);
+    pushRecent(suggested.recentSeeds, primary);
+  }
+  if (bias > 0.45){
+    const secondary = (bias >= 0.7)
+      ? (pickRelatedTag(primary, poolUse, bias, suggested.recentSeeds) || pickWeightedTag(poolUse, bias * 0.8, suggested.recentSeeds))
+      : pickWeightedTag(poolUse, bias * 0.8, suggested.recentSeeds);
+    if (secondary && !inc.includes(secondary)) { inc.push(secondary); pushRecent(suggested.recentSeeds, secondary); }
+  }
+  if (bias >= 0.85 && inc.length < 3){
+    const tertiary = pickRelatedTag(primary, poolUse, bias * 0.9, suggested.recentSeeds);
+    if (tertiary && !inc.includes(tertiary)) { inc.push(tertiary); pushRecent(suggested.recentSeeds, tertiary); }
+  }
+
+  if (provider === 'rule34') {
+    inc.push(bias >= 0.8 ? 'sort:score' : 'sort:random');
+    inc.push('score:>=10');
+  }
+  return inc;
+}
+
+function pushRecent(list, val){
+  if (!val) return;
+  const next = list.filter(v => v !== val);
+  next.unshift(val);
+  if (next.length > SUGGEST_RECENT_MAX) next.length = SUGGEST_RECENT_MAX;
+  list.length = 0;
+  list.push(...next);
+}
+
+function pickWeightedSimple(list, recent){
+  const opts = list.filter(t => !recent.includes(t));
+  const pickFrom = opts.length ? opts : list;
+  if (!pickFrom.length) return '';
+  return pickFrom[Math.floor(Math.random() * pickFrom.length)];
+}
+
+function pickWeightedTag(pool, bias, recent){
+  if (!Array.isArray(pool) || !pool.length) return '';
+  const exp = 0.6 + bias * 1.4;
+  const recentSet = new Set(recent || []);
+  const state = suggested.pickState || (suggested.pickState = new Map());
+  let total = 0;
+  let bestTag = '';
+  let bestScore = -Infinity;
+  for (const p of pool){
+    const tag = p.tag;
+    const typeMult = tagTypeMultiplier(suggested.tagTypes.get(tag));
+    const base = Math.pow((p.weight || 1) * typeMult, exp);
+    const cooldown = recentSet.has(tag) ? 0.35 : 1;
+    const w = base * cooldown;
+    if (!Number.isFinite(w) || w <= 0) continue;
+    total += w;
+    let entry = state.get(tag);
+    if (!entry){
+      entry = { cw: 0 };
+      state.set(tag, entry);
+    }
+    entry.cw += w;
+    const score = entry.cw;
+    if (score > bestScore){
+      bestScore = score;
+      bestTag = tag;
+    }
+  }
+  if (!bestTag){
+    return pool[0]?.tag || '';
+  }
+  const chosen = state.get(bestTag);
+  if (chosen) chosen.cw -= total;
+  return bestTag;
+}
+
+function pickRelatedTag(primary, pool, bias, recent){
+  if (!primary || !Array.isArray(pool) || !pool.length) return '';
+  const map = suggested.coMap?.get(primary);
+  if (!map || !map.size) return '';
+  const exp = 0.6 + bias * 1.4;
+  const recentSet = new Set(recent || []);
+  let total = 0;
+  const candidates = [];
+  for (const p of pool){
+    if (p.tag === primary || recentSet.has(p.tag)) continue;
+    const co = map.get(p.tag);
+    if (!co) continue;
+    const base = (p.weight || 1) * tagTypeMultiplier(suggested.tagTypes.get(p.tag));
+    const w = Math.pow(base, exp) * (0.35 + co * 1.15);
+    candidates.push({ tag: p.tag, w });
+    total += w;
+  }
+  if (!total) return '';
+  let roll = Math.random() * total;
+  for (const c of candidates){
+    roll -= c.w;
+    if (roll <= 0) return c.tag;
+  }
+  return candidates[0]?.tag || '';
+}
+
+function buildSuggestedPools(){
+  const counts = new Map();
+  const now = Date.now();
+  let totalPosts = 0;
+  const dayMs = 1000 * 60 * 60 * 24;
+  const perPostTags = [];
+  const exclude = new Set([
+    ...(filters.excludeAI ? ['ai_generated','stable_diffusion','novelai','midjourney'] : []),
+    ...(filters.excludeScat ? ['scat','coprophagia','feces'] : []),
+    ...(filters.excludeShota ? ['loli','shota'] : []),
+    ...((Array.isArray(filters.customExclude) && filters.customExclude.length) ? filters.customExclude : []),
+  ]);
+  for (const id of favorites.ids){
+    const p = favorites.map[id];
+    if (!p?.tags) continue;
+    totalPosts += 1;
+    const favAt = Number(p?.favAt || 0);
+    const createdAt = parseDate(p?.created_at || '');
+    const ts = favAt || createdAt || now;
+    const ageDays = Math.max(0, (now - ts) / (1000 * 60 * 60 * 24));
+    const recency = 1 / (1 + ageDays / 20);
+    const tags = [];
+    for (const t of p.tags.split(/\s+/)){
+      if (!t) continue;
+      if (exclude.has(t)) continue;
+      if (t.includes(':')) continue;
+      const stat = counts.get(t) || { count: 0, recency: 0, last: 0 };
+      stat.count += 1;
+      stat.recency += recency;
+      if (ts > stat.last) stat.last = ts;
+      counts.set(t, stat);
+      if (tags.length < 40 && !tags.includes(t)) tags.push(t);
+    }
+    if (tags.length) perPostTags.push(tags);
+  }
+  const entries = Array.from(counts.entries()).map(([tag, s]) => {
+    const freq = Math.pow(Math.max(1, s.count), 1.08);
+    const rec = s.recency / Math.max(1, s.count);
+    const recBoost = 0.55 + 0.75 * Math.pow(rec, 1.1);
+    const lastAgeDays = Math.max(0, (now - (s.last || now)) / dayMs);
+    const lastBoost = 0.9 + 0.4 * Math.exp(-lastAgeDays / 18);
+    const ubiq = clamp(s.count / Math.max(1, totalPosts), 0, 1);
+    const diversity = 1 / Math.sqrt(1 + ubiq * 1.2);
+    const weight = Math.max(0.05, freq * recBoost * lastBoost * diversity);
+    return { tag, weight, count: s.count, recency: rec };
+  }).sort((a,b)=>b.weight-a.weight);
+  const tagPool = entries.slice(0, 120);
+  const coMap = new Map();
+  if (tagPool.length && perPostTags.length){
+    const topSet = new Set(tagPool.map(t => t.tag));
+    const raw = new Map();
+    for (const tags of perPostTags){
+      const list = tags.filter(t => topSet.has(t));
+      if (list.length < 2) continue;
+      const limited = list.slice(0, 30);
+      for (let i = 0; i < limited.length; i++){
+        for (let j = i + 1; j < limited.length; j++){
+          const a = limited[i];
+          const b = limited[j];
+          const ma = raw.get(a) || new Map();
+          ma.set(b, (ma.get(b) || 0) + 1);
+          raw.set(a, ma);
+          const mb = raw.get(b) || new Map();
+          mb.set(a, (mb.get(a) || 0) + 1);
+          raw.set(b, mb);
+        }
+      }
+    }
+    for (const [tag, map] of raw.entries()){
+      let max = 1;
+      for (const v of map.values()) if (v > max) max = v;
+      const norm = new Map();
+      for (const [k, v] of map.entries()){
+        norm.set(k, clamp(v / max, 0.1, 1));
+      }
+      if (norm.size) coMap.set(tag, norm);
+    }
+  }
+  const artistPool = tagPool.filter(t => suggested.tagTypes.get(t.tag) === 1).map(t => t.tag);
+  return { tagPool, artistPool, coMap };
+}
+
+function parseDate(v){
+  if (!v) return 0;
+  const num = Number(v);
+  if (Number.isFinite(num) && num > 0) return num * (num > 1e12 ? 1 : 1000);
+  const ms = Date.parse(String(v));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+async function primeSuggestedTagTypes(tags){
+  if (String(settings?.provider || 'rule34') !== 'rule34') return;
+  const list = (Array.isArray(tags) ? tags : []).filter(Boolean);
+  const next = list.filter(t => !suggested.tagTypes.has(t)).slice(0, 32);
+  if (!next.length) return;
+  const tasks = next.map(async (tag) => {
+    try{
+      const meta = await API.tagMeta(tag, 'rule34');
+      const arr = Array.isArray(meta) ? meta : (Array.isArray(meta?.tag) ? meta.tag : []);
+      if (!arr.length) return;
+      const obj = arr.find(o => String(o.name||'').toLowerCase() === String(tag).toLowerCase()) || arr[0];
+      const type = Number(obj?.type);
+      if (Number.isFinite(type)) suggested.tagTypes.set(tag, type);
+    }catch{}
+  });
+  await Promise.allSettled(tasks);
+  try{
+    const pool = suggested.tagPool || [];
+    suggested.artistPool = pool.filter(t => suggested.tagTypes.get(t.tag) === 1).map(t => t.tag);
+  }catch{}
+}
+
+function tagTypeMultiplier(type){
+  switch (Number(type)){
+    case 4: return 1.6; // character
+    case 3: return 1.5; // copyright
+    case 2: return 1.35; // copyright-ish
+    case 1: return 1.15; // artist
+    case 5: return 0.75; // meta
+    case 0: return 0.9; // general
+    default: return 1;
+  }
 }
 
 function sanitizePosts(data){
@@ -386,24 +756,21 @@ function postCard(p){
   try{ posterUrl = proxyUrlIfNeeded(p.preview_url || p.sample_url || ''); }catch{}
   art.innerHTML = `
       <div class="post-media" data-id="${p.id}" style="${mediaStyle}">
-        <div class="like-heart">?</div>
-        ${renderAsVideo ? `<video preload="metadata" playsinline webkit-playsinline muted controls referrerpolicy="no-referrer" poster="${escapeHtml(posterUrl)}"></video>`
-                   : `<img loading=\"lazy\" referrerpolicy=\"no-referrer\" src=\"${escapeHtml(p.sample_url || p.file_url)}\" alt=\"post\" />`}
+        <div class="like-heart">${ICONS.heartFill}</div>
+        ${renderAsVideo ? `<video preload="metadata" playsinline webkit-playsinline controls referrerpolicy="no-referrer" poster="${escapeHtml(posterUrl)}"></video>`
+                   : `<img loading="lazy" referrerpolicy="no-referrer" src="${escapeHtml(p.sample_url || p.file_url)}" alt="post" />`}
         <div class="media-skel"></div>
       </div>
       <div class="post-meta">
         <div class="left">
-          <button class="icon-btn fav ${favSet.has(p.id)?'active':''}" title="Favorite">?</button>
-          <button class="icon-btn" data-act="tags" title="View tags">??</button>
+          <button class="icon-btn fav ${favSet.has(p.id)?'active':''}" title="Favorite" aria-label="Favorite">${ICONS.heart}<span class="sr-only">Favorite</span></button>
+          <button class="icon-btn" data-act="tags" title="View tags" aria-label="View tags">${ICONS.tag}<span class="sr-only">View tags</span></button>
         </div>
         <div class="right">
-          <a class="icon-btn" href="${escapeHtml(p.file_url)}" download title="Download">?</a>
+          <a class="icon-btn" href="${escapeHtml(p.file_url)}" download title="Download" aria-label="Download">${ICONS.download}<span class="sr-only">Download</span></a>
         </div>
       </div>`;
 
-  const likeIcon = $('.like-heart', art); if (likeIcon) likeIcon.textContent = '?';
-  const leftBox = $('.post-meta .left', art);
-  const rightBox = $('.post-meta .right', art);
   const dlLink = $('a[download]', art);
   const media = $('.post-media', art);
   const imgEl = $('img', media);
@@ -447,14 +814,12 @@ function postCard(p){
   const favBtn = $('.fav', art);
   const tagsBtn = $('[data-act="tags"]', art);
   const video = $('video', media);
+  bindVideoMuteSync(video);
   // Also bind aspect for initial video elements
   try{ if (video) { const ev = video; if (ev.readyState >= 1) { /* metadata known */ } ; ev.addEventListener('loadedmetadata', () => { try{ const w=ev.videoWidth||0, h=ev.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} }); try{ ev.addEventListener('resize', () => { try{ const w=ev.videoWidth||0, h=ev.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} }); }catch{} } }catch{}
-  if (favBtn) favBtn.textContent = 'Favorite';
   if (dlLink) {
-    dlLink.textContent = 'Download';
     dlLink.target = '_blank';
     dlLink.rel = 'noopener noreferrer';
-    if (leftBox) leftBox.appendChild(dlLink);
     try { updateDownloadLink(art, p); } catch {}
     dlLink.addEventListener('click', async (e) => {
       try {
@@ -463,7 +828,7 @@ function postCard(p){
       } catch {}
     });
   }
-  if (tagsBtn) { tagsBtn.textContent = 'View tags'; if (rightBox) rightBox.appendChild(tagsBtn); }
+  if (tagsBtn) { /* icons already set in markup */ }
 
   // Double-tap/double-click like FX
   let lastTap = 0;
@@ -710,6 +1075,53 @@ function postCard(p){
   }
 
   return art;
+}
+
+function bindVideoMuteSync(video){
+  if (!video || video._muteSyncBound) return;
+  video._muteSyncBound = true;
+  if (globalVideoMuted === null) globalVideoMuted = false;
+  enforceVideoAudio(video, globalVideoMuted);
+  video._lastMuted = !!video.muted;
+  video.addEventListener('loadedmetadata', () => {
+    enforceVideoAudio(video, globalVideoMuted);
+  });
+  video.addEventListener('play', () => {
+    enforceVideoAudio(video, globalVideoMuted);
+  });
+  video.addEventListener('volumechange', () => {
+    if (muteSyncLock) return;
+    const nextMuted = !!video.muted;
+    if (video._lastMuted === nextMuted) return;
+    video._lastMuted = nextMuted;
+    syncAllVideoMute(nextMuted, video);
+  });
+}
+
+function syncAllVideoMute(muted, origin){
+  if (muteSyncLock) return;
+  muteSyncLock = true;
+  globalVideoMuted = muted;
+  const videos = document.querySelectorAll('.post-card video');
+  videos.forEach((v) => {
+    if (v === origin) return;
+    enforceVideoAudio(v, muted);
+    v._lastMuted = !!v.muted;
+  });
+  setTimeout(() => { muteSyncLock = false; }, 0);
+}
+
+function enforceVideoAudio(video, muted){
+  if (!video) return;
+  try{
+    video.removeAttribute('muted');
+    video.defaultMuted = false;
+  }catch{}
+  if (typeof muted === 'boolean') video.muted = muted;
+  else if (video.muted) video.muted = false;
+  try{
+    if (!Number.isFinite(video.volume) || video.volume === 0) video.volume = 1;
+  }catch{}
 }
 
 function proxyUrlIfNeeded(url){
@@ -1042,7 +1454,7 @@ async function enrichRealBooruCard(art){
       let video = $('video', media);
       if (!video){
         video = document.createElement('video');
-        video.preload = 'metadata'; video.playsInline = true; video.muted = true; video.controls = true;
+        video.preload = 'metadata'; video.playsInline = true; video.muted = false; video.controls = true;
         try{ video.poster = proxyUrlIfNeeded(p.preview_url || p.sample_url || ''); }catch{ video.poster = p.preview_url || p.sample_url || ''; }
         try { video.removeAttribute('crossorigin'); video.setAttribute('referrerpolicy','no-referrer'); } catch {}
         // iOS: if this is a webm and no mp4 available, avoid inline and keep image (tap opens new tab via Download)
@@ -1064,6 +1476,7 @@ async function enrichRealBooruCard(art){
           }
         };
         if (video.src){ if (img) img.replaceWith(video); else media.appendChild(video); }
+        bindVideoMuteSync(video);
         try{ const sk = $('.media-skel', media); video.addEventListener('loadedmetadata', () => { try{ sk?.remove(); }catch{} }, { once: true }); video.addEventListener('loadeddata', () => { try{ sk?.remove(); }catch{} }, { once: true }); }catch{}
         try{
           const applyAspect = () => { try{ const w=video.videoWidth||0, h=video.videoHeight||0; if (w>0&&h>0) media.style.aspectRatio = `${w} / ${h}`; }catch{} };
@@ -1076,6 +1489,7 @@ async function enrichRealBooruCard(art){
         vis.observe(video);
       } else {
         video.src = direct;
+        bindVideoMuteSync(video);
         let vidTriedWithRef3 = false;
         video.onerror = () => {
           if (!vidTriedWithRef3){
@@ -1103,11 +1517,15 @@ function toggleFavorite(p){
   } else {
     favSet.add(p.id);
     favorites.ids.unshift(p.id);
-    favorites.map[p.id] = p;
+    favorites.map[p.id] = { ...p, favAt: Date.now() };
     haptic(35);
     nowFav = true;
   }
   saveLS(LS.favorites, favorites);
+  suggested.tagPool = [];
+  suggested.artistPool = [];
+  suggested.coMap = new Map();
+  suggested.pickState = new Map();
   $$('.post-card').forEach(c => {
     if (c.dataset.id === p.id) $('.fav', c)?.classList.toggle('active', favSet.has(p.id));
   });
@@ -1116,7 +1534,7 @@ function toggleFavorite(p){
 
 function renderFavorites(){
   clearFeed();
-  if (!favorites.ids.length){ renderEmptyState('No favorites yet. Double-tap or click ? to add.'); return; }
+  if (!favorites.ids.length){ renderEmptyState('No favorites yet. Tap the heart to save a post.'); return; }
   const posts = favorites.ids.map(id => favorites.map[id]).filter(Boolean);
   renderPosts(posts);
   reachedEnd = true;
@@ -1179,8 +1597,8 @@ export async function showTagsOverlay(p){
           node.classList.toggle('in-search', inInc2);
           node.classList.toggle('excluded', inExc2);
           const x = node.querySelector('.x');
-          if (x) x.textContent = inInc2 ? '✓' : (inExc2 ? '-' : '+');
-          node.title = inInc2 ? 'In search — click to remove' : (inExc2 ? 'Excluded — click to include' : 'Add to search');
+          if (x) x.textContent = inInc2 ? 'x' : (inExc2 ? '-' : '+');
+          node.title = inInc2 ? 'In search - click to remove' : (inExc2 ? 'Excluded - click to include' : 'Add to search');
           node.addEventListener('click', () => {
             const cur = getSearchState();
             const isInc = (cur.include||[]).includes(key2);
@@ -1194,8 +1612,8 @@ export async function showTagsOverlay(p){
             node.classList.toggle('in-search', ni2);
             node.classList.toggle('excluded', ne2);
             const x2 = node.querySelector('.x');
-            if (x2) x2.textContent = ni2 ? '✓' : (ne2 ? '-' : '+');
-            node.title = ni2 ? 'In search — click to remove' : (ne2 ? 'Excluded — click to include' : 'Add to search');
+            if (x2) x2.textContent = ni2 ? 'x' : (ne2 ? '-' : '+');
+            node.title = ni2 ? 'In search - click to remove' : (ne2 ? 'Excluded - click to include' : 'Add to search');
           });
         });
       }catch{}
@@ -1218,14 +1636,8 @@ export function onScroll(){
   const dy = y - lastScrollY;
   const dir = dy > 0 ? 1 : (dy < 0 ? -1 : direction);
   const isDesktop = isDesktopLayout();
-  // Update measurements when needed
-  ensureChromeMeasurements();
-  // Respect preference: keep expanded when auto-hide disabled
-  if (!settings?.autoHideTopbar){
-    uiOffsetPx = 0;
-    applyChromeTransforms(0, isDesktop);
-    // still update progress, button, and lastScroll
-  }
+  const stickyOn = settings.stickyTopbar !== false;
+  const autoHideOn = settings.autoHideTopbar !== false;
   // Distance thresholds to avoid instant show/hide on tiny scrolls
   const showThreshold = 1200; // only consider button after this scroll depth
   const showMinDelta = 90;    // need to scroll up at least this much to show
@@ -1239,20 +1651,23 @@ export function onScroll(){
   if ((dir > 0 && downDelta >= hideMinDelta) || nearTop) { hideToTopBtn(); downDelta = 0; }
 
   // Scroll-linked motion for top/bottom bars
-  const tbNearTop = y < 60;
-  if (isDesktop){
-    // Desktop: start sliding after a threshold; slide proportionally as you keep scrolling
-    const threshold = 240; // px: when to begin hiding
-    const total = Math.max(0, topbarH + tabbarH);
-    const off = clamp(y - threshold, 0, total);
-    uiOffsetPx = off;
+  if (stickyOn && autoHideOn){
+    const tbNearTop = y < 60;
+    if (isDesktop){
+      const threshold = 240;
+      const total = Math.max(0, topbarH + tabbarH);
+      const off = clamp(y - threshold, 0, total);
+      uiOffsetPx = off;
+    } else {
+      const maxHide = Math.max(topbarH, tabbarH);
+      if (tbNearTop) uiOffsetPx = 0;
+      uiOffsetPx = clamp(uiOffsetPx + dy, 0, maxHide);
+    }
+    applyChromeTransforms(uiOffsetPx, isDesktop);
   } else {
-    // Mobile: interactive hide/reveal with scroll delta
-    const maxHide = Math.max(topbarH, tabbarH);
-    if (tbNearTop) uiOffsetPx = 0; // fully reveal at the very top
-    uiOffsetPx = clamp(uiOffsetPx + dy, 0, maxHide);
+    uiOffsetPx = 0;
+    applyChromeTransforms(0, isDesktop);
   }
-  applyChromeTransforms(uiOffsetPx, isDesktop);
   direction = dir;
   lastScrollY = y;
 }
@@ -1278,122 +1693,78 @@ function hideToTopBtn(){
   b.addEventListener('transitionend', onEnd);
 }
 
-function collapseTopbar(){
-  if (topbarCollapsed) return;
-  topbarCollapsed = true;
-  try{ els.topbar?.classList.add('collapsed'); }catch{}
-}
-function expandTopbar(){
-  if (!topbarCollapsed) return;
-  topbarCollapsed = false;
-  try{ els.topbar?.classList.remove('collapsed'); }catch{}
-}
-
 export function applyTopbarPref(){
-  // Apply preference immediately
-  if (!settings?.autoHideTopbar){
-    topbarCollapsed = false;
-    try{ els.topbar?.classList.remove('collapsed'); }catch{}
-  }
-  // Reset transforms when pref toggles off
-  ensureChromeMeasurements();
+  const stickyOn = settings.stickyTopbar !== false;
+  try{ document.documentElement.dataset.topbarSticky = stickyOn ? 'true' : 'false'; }catch{}
+  uiOffsetPx = 0;
   applyChromeTransforms(0, isDesktopLayout());
-}
-
-// ---- Helpers for smoother header/tabbar behavior ----
-// Measure the full natural height of the topbar (unclipped),
-// independent of the current clip/transform used for scroll-hiding.
-function getTopbarHeight(){
-  const top = els.topbar; if (!top) return 0;
-  try{
-    const prevHeight = top.style.height;
-    const prevOverflow = top.style.overflow;
-    const prevClip = top.style.getPropertyValue('--topbar-clip');
-    top.classList.add('no-anim');
-    // Ensure fully revealed and not clipping for measurement
-    top.style.setProperty('--topbar-clip', '0px');
-    top.style.height = 'auto';
-    top.style.overflow = 'visible';
-    // Force reflow
-    void top.offsetHeight;
-    const h = Math.round(top.scrollHeight || top.getBoundingClientRect().height || 0);
-    // Restore
-    if (prevHeight) top.style.height = prevHeight; else top.style.removeProperty('height');
-    if (prevOverflow) top.style.overflow = prevOverflow; else top.style.removeProperty('overflow');
-    if (prevClip) top.style.setProperty('--topbar-clip', prevClip); else top.style.removeProperty('--topbar-clip');
-    top.classList.remove('no-anim');
-    return h;
-  }catch{ return 0; }
-}
-function getMeasuredTopbarHeight(collapsed){
-  const top = els.topbar; if (!top) return 0;
-  try{
-    const wasCollapsed = top.classList.contains('collapsed');
-    top.classList.add('no-anim');
-    // Toggle to target state without transitions and measure
-    top.classList.toggle('collapsed', !!collapsed);
-    // Force reflow before measuring
-    void top.offsetHeight;
-    const h = Math.round(top.getBoundingClientRect().height || 0);
-    // Restore original state
-    top.classList.toggle('collapsed', wasCollapsed);
-    void top.offsetHeight;
-    top.classList.remove('no-anim');
-    return h;
-  }catch{ return getTopbarHeight(); }
-}
-function hideTabbar(){
-  if (tabbarHidden) return;
-  tabbarHidden = true;
-  try{ els.tabbar?.classList.add('hidden'); }catch{}
-}
-function showTabbar(){
-  if (!tabbarHidden) return;
-  tabbarHidden = false;
-  try{ els.tabbar?.classList.remove('hidden'); }catch{}
 }
 
 function isDesktopLayout(){
   try{ return window.matchMedia('(min-width: 900px)').matches; }catch{ return window.innerWidth >= 900; }
 }
 
-function ensureChromeMeasurements(){
-  const th = getTopbarHeight();
-  const tb = (()=>{ try{ return Math.round((els.tabbar?.getBoundingClientRect().height) || 0); }catch{ return 0; } })();
-  if (th !== topbarH || tb !== tabbarH){
-    topbarH = th; tabbarH = tb;
-    try{ document.documentElement.style.setProperty('--topbar-h', th + 'px'); }catch{}
-  }
+function setupChromeObservers(){
+  if (topbarRO || tabbarRO) return;
+  const top = els.topbar;
+  const inner = els.topbarInner || top;
+  const tab = els.tabbar;
+  const measureTop = () => {
+    if (!top || !inner) return;
+    let pad = 0;
+    try{
+      const s = getComputedStyle(top);
+      pad = (parseFloat(s.paddingTop) || 0) + (parseFloat(s.paddingBottom) || 0);
+    }catch{}
+    const h = Math.round((inner.getBoundingClientRect().height || inner.scrollHeight || 0) + pad);
+    if (h && h !== topbarH){
+      topbarH = h;
+      try{ document.documentElement.style.setProperty('--topbar-h', h + 'px'); }catch{}
+    }
+  };
+  const measureTab = () => {
+    if (!tab) return;
+    const h = Math.round(tab.getBoundingClientRect().height || 0);
+    if (h && h !== tabbarH){ tabbarH = h; }
+  };
+  measureTop();
+  measureTab();
+  try{
+    if (window.ResizeObserver){
+      topbarRO = new ResizeObserver(measureTop);
+      if (inner) topbarRO.observe(inner);
+      tabbarRO = new ResizeObserver(measureTab);
+      if (tab) tabbarRO.observe(tab);
+    }
+  }catch{}
 }
 
 function applyChromeTransforms(offsetPx, isDesktop){
   const top = els.topbar, tab = els.tabbar;
   if (!top || !tab){ return; }
-  const th = topbarH || getTopbarHeight();
+  const stickyOn = settings.stickyTopbar !== false;
+  const autoHideOn = settings.autoHideTopbar !== false;
+  const th = topbarH || 0;
   const bh = tabbarH || (tab.getBoundingClientRect().height || 0);
-  let topClip = 0, tabT = 0, topO = 1, tabO = 1;
-  if (!settings?.autoHideTopbar){
-    // Fully visible
-    topClip = 0; tabT = 0; topO = 1; tabO = 1;
+  let topOffset = 0, tabT = 0, topO = 1, tabO = 1;
+  if (!stickyOn || !autoHideOn){
+    topOffset = 0; tabT = 0; topO = 1; tabO = 1;
   } else if (isDesktop){
-    // Desktop: slide up after threshold; offsetPx in [0, th+bh]
     const off = clamp(offsetPx, 0, Math.max(0, th + bh));
-    topClip = Math.min(off, th);
-    tabT = -off;
-    topO = 1 - clamp(topClip / (th || 1), 0, 1);
-    // tabbar fades only when it starts leaving (after topbar fully hidden)
+    topOffset = Math.min(off, th);
     const tabOff = Math.max(0, off - th);
+    tabT = -tabOff;
+    topO = 1 - clamp(topOffset / (th || 1), 0, 1);
     tabO = 1 - clamp(tabOff / (bh || 1), 0, 1);
   } else {
-    // Mobile: interactive with scroll delta; offsetPx in [0, max(th,bh)]
     const off = clamp(offsetPx, 0, Math.max(th, bh));
-    topClip = Math.min(off, th);
+    topOffset = Math.min(off, th);
     tabT = +Math.min(off, bh);
-    topO = 1 - clamp(topClip / (th || 1), 0, 1);
-    tabO = 1 - clamp(off / (bh || 1), 0, 1);
+    topO = 1 - clamp(topOffset / (th || 1), 0, 1);
+    tabO = 1 - clamp(tabT / (bh || 1), 0, 1);
   }
   try{
-    top.style.setProperty('--topbar-clip', `${topClip}px`);
+    top.style.setProperty('--topbar-offset', `${topOffset}px`);
     top.style.setProperty('--topbar-opacity', `${topO}`);
     tab.style.setProperty('--tabbar-translate', `${tabT}px`);
     tab.style.setProperty('--tabbar-opacity', `${tabO}`);
@@ -1401,7 +1772,4 @@ function applyChromeTransforms(offsetPx, isDesktop){
 }
 
 // Keep transforms correct on resize
-window.addEventListener('resize', () => { ensureChromeMeasurements(); applyChromeTransforms(uiOffsetPx, isDesktopLayout()); });
-
-
-
+window.addEventListener('resize', () => { setupChromeObservers(); applyChromeTransforms(uiOffsetPx, isDesktopLayout()); });

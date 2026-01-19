@@ -1,170 +1,80 @@
-import { $, uid, lockScroll, unlockScroll, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20251007';
-import { LS, DEFAULTS, saveLS, loadLS, settings, filters, groups, favorites, setSettings, setFilters, setGroups, setFavorites, resetAllData, APP_VERSION } from '../core/state.js?v=20251007';
-import { API, parseTagXML, fetchText } from '../core/api.js?v=20251007';
-import { renderChipsFix, normalizeTag } from './search.js?v=20251007';
-import { applyTheme, applyColumns, applyTopbarPref } from './feed.js?v=20251007';
+import { $, escapeHtml, sparkline, debounce } from '../core/utils.js?v=20251007';
+import { LS, DEFAULTS, saveLS, settings, filters, groups, favorites, savedSearches, recentTags, setSettings, setFilters, setGroups, setFavorites, setSavedSearches, setRecentTags, resetAllData, APP_VERSION } from '../core/state.js?v=20251007';
+import { API, fetchText } from '../core/api.js?v=20251007';
+import { normalizeTag } from './search.js?v=20251007';
+import { applyTheme, applyColumns, applyTopbarPref, refreshSuggested } from './feed.js?v=20251007';
+import { openViz } from './viz.js?v=20251007';
+import { openFeedsManager, updateFeedsSummary } from './feeds-manager.js?v=20251007';
 
 let els;
 let dataMsgTimer = 0;
 
 export function initSettings(domRefs){
   els = domRefs;
-  els.settingsClose.addEventListener('click', () => hideSettings());
-  els.settingsOverlay.addEventListener('click', (e) => { if (e.target === els.settingsOverlay) hideSettings(); });
-}
-
-export function showSettings(){
-  renderSettings();
-  els.settingsOverlay.hidden = false;
-  lockScroll();
-}
-export function hideSettings(){
-  els.settingsOverlay.hidden = true;
-  unlockScroll();
 }
 
 export function renderSettings(){
-  els.settingsContainer.innerHTML = '';
+  if (!els?.settingsPage) return;
+  els.settingsPage.innerHTML = '';
   const tpl = $('#tpl-settings');
   const node = tpl.content.cloneNode(true);
-  els.settingsContainer.appendChild(node);
+  els.settingsPage.appendChild(node);
+  setupSettingsNav();
+  els.settingsPage.querySelector('#open-viz')?.addEventListener('click', () => openViz());
 
   // Source (provider) + CORS proxy controls
   try{
-    const settingsRoot = els.settingsContainer.querySelector('.settings');
+    const settingsRoot = els.settingsPage.querySelector('.settings-view');
     if (settingsRoot) {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `
-        <h3>Default Provider</h3>
-        <div class="row fields">
-          <div class="provider-dd" style="flex:1; position:relative">
-            <button id="opt-provider-dd" class="prov-dd" type="button" aria-haspopup="listbox" aria-expanded="false">
-              <img alt="" />
-              <span class="lbl"></span>
-              <span class="caret" aria-hidden="true">▾</span>
-            </button>
-            <div class="prov-menu" role="listbox" hidden>
-              <button class="item" data-prov="rule34" role="option"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
-              <button class="item" data-prov="realbooru" role="option"><img src="icons/RealBooru.png" alt="" /><span>RealBooru</span></button>
-            </div>
-          </div>
-          <label class="stack proxy-wrap" style="flex:2; position:relative">CORS Proxy (optional)
-            <input id="opt-proxy" type="text" placeholder="https://r.jina.ai/http/ or https://cors.isomorphic-git.org/" />
-            <span class="input-spinner" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div class="fields">
-          <label class="switch">
-            <input id="opt-proxy-images" type="checkbox" />
-            <span class="switch-ui" aria-hidden="true"></span>
-            <span class="label">Use proxy for media</span>
-          </label>
-          <div class="note">Turn off to reduce proxy bandwidth. If images fail to load due to hotlink protection, turn back on.</div>
-        </div>
-        <div class="note">Rule34: no proxy needed. RealBooru: proxy required for search/autocomplete (images usually load direct).</div>
-      `;
-      // Move provider + proxy controls into the API Access card, not a separate card
-      const apiInput = $('#opt-user-id');
-      let apiCard = apiInput;
-      while (apiCard && apiCard.classList && !apiCard.classList.contains('card')) apiCard = apiCard.parentElement;
-      // Build two rows: (1) Default Provider above User ID, (2) CORS Proxy below it
-      // Remove any previous injections
-      apiCard.querySelector('#provider-row')?.remove();
-      apiCard.querySelector('#proxy-row')?.remove();
-
-      const providerRow = document.createElement('div');
-      providerRow.className = 'row fields'; providerRow.id = 'provider-row';
-      providerRow.innerHTML = `
-        <label class="stack" style="flex:1">
-          <span class="label">Default Provider</span>
-          <div class="provider-dd" style="position:relative">
-            <button id="opt-provider-dd" class="prov-dd" type="button" aria-haspopup="listbox" aria-expanded="false">
-              <img alt="" />
-              <span class="lbl"></span>
-              <span class="caret" aria-hidden="true">▾</span>
-            </button>
-            <div class="prov-menu" role="listbox" hidden>
-              <button class="item" data-prov="rule34" role="option"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
-              <button class="item" data-prov="realbooru" role="option"><img src="icons/RealBooru.png" alt="" /><span>Realbooru</span></button>
-            </div>
-          </div>
-        </label>
-      `;
-
-      const proxyRow = document.createElement('div');
-      proxyRow.className = 'row fields'; proxyRow.id = 'proxy-row';
-      proxyRow.innerHTML = `
-        <label class="stack proxy-wrap" style="flex:1; position:relative">
-          <span class="label">CORS Proxy</span>
-          <div class="note">Proxies are only used on sites that require them to fetch media. For instance, Realbooru requires a proxy as media from it needs to be scraped as its API is offline.</div>
-          <div class="input-wrap">
-            <input id="opt-proxy" type="text" placeholder="https://r.jina.ai/http/ or https://cors.isomorphic-git.org/" />
-            <span class="input-spinner" aria-hidden="true"></span>
-          </div>
-          <label class="switch" style="margin-top:8px">
-            <input id="opt-proxy-images" type="checkbox" />
-            <span class="switch-ui" aria-hidden="true"></span>
-            <span class="label">Use proxy for media</span>
-          </label>
-        </label>
-      `;
-
-      const credsRow = apiCard.querySelector('.row.fields');
-      if (credsRow){ apiCard.insertBefore(providerRow, credsRow); apiCard.insertBefore(proxyRow, credsRow); }
-      else { apiCard.appendChild(providerRow); apiCard.appendChild(proxyRow); }
-
-      // Toggle is now part of the proxy row directly under the textbox
-
-      const provBtn = providerRow.querySelector('#opt-provider-dd');
-      const provMenu = providerRow.querySelector('.prov-menu');
-      const provWrap = providerRow.querySelector('.provider-dd');
+      const provBtn = settingsRoot.querySelector('#opt-provider-dd');
+      const provMenu = settingsRoot.querySelector('.prov-menu');
+      const provWrap = settingsRoot.querySelector('.provider-dd');
       const provImg = provBtn?.querySelector('img');
       const provLbl = provBtn?.querySelector('.lbl');
-      const prox = proxyRow.querySelector('#opt-proxy');
-      const proxyWrap = proxyRow.querySelector('.proxy-wrap');
+      const prox = settingsRoot.querySelector('#opt-proxy');
+      const proxyWrap = settingsRoot.querySelector('.proxy-wrap');
       if (prox) prox.value = settings.corsProxy || '';
-      const proxyImages = apiCard.querySelector('#opt-proxy-images');
+      const proxyImages = settingsRoot.querySelector('#opt-proxy-images');
       if (proxyImages) proxyImages.checked = !!settings.proxyImages;
-    // Custom full-width dropdown (icon + name + caret)
-    const iconFor = (p) => p==='realbooru' ? 'icons/RealBooru.png' : 'icons/Rule34.png';
-    const labelFor = (p) => p==='realbooru' ? 'RealBooru' : 'Rule34';
-    const applyProvDD = () => { const p = settings.provider||'rule34'; if (provImg) provImg.src = iconFor(p); if (provLbl) provLbl.textContent = labelFor(p); };
-    applyProvDD();
-    let provDocHandler = null;
-    const openProvMenu = () => {
-      if (!provMenu) return; provMenu.hidden = false; provBtn?.setAttribute('aria-expanded','true');
-      provDocHandler = (e) => {
-        if (provWrap && (provWrap.contains(e.target))) return;
-        closeProvMenu();
+      // Custom full-width dropdown (icon + name + caret)
+      const iconFor = (p) => p==='realbooru' ? 'icons/RealBooru.png' : 'icons/Rule34.png';
+      const labelFor = (p) => p==='realbooru' ? 'RealBooru' : 'Rule34';
+      const applyProvDD = () => { const p = settings.provider||'rule34'; if (provImg) provImg.src = iconFor(p); if (provLbl) provLbl.textContent = labelFor(p); };
+      applyProvDD();
+      let provDocHandler = null;
+      const openProvMenu = () => {
+        if (!provMenu) return; provMenu.hidden = false; provBtn?.setAttribute('aria-expanded','true');
+        provDocHandler = (e) => {
+          if (provWrap && (provWrap.contains(e.target))) return;
+          closeProvMenu();
+        };
+        document.addEventListener('click', provDocHandler);
       };
-      document.addEventListener('click', provDocHandler);
-    };
-    const closeProvMenu = () => {
-      if (!provMenu) return; provMenu.hidden = true; provBtn?.setAttribute('aria-expanded','false');
-      if (provDocHandler){ document.removeEventListener('click', provDocHandler); provDocHandler = null; }
-    };
+      const closeProvMenu = () => {
+        if (!provMenu) return; provMenu.hidden = true; provBtn?.setAttribute('aria-expanded','false');
+        if (provDocHandler){ document.removeEventListener('click', provDocHandler); provDocHandler = null; }
+      };
       provBtn?.addEventListener('click', (e)=>{ e.stopPropagation(); if (provMenu?.hidden===false) closeProvMenu(); else openProvMenu(); });
-    provMenu?.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ const p = it.getAttribute('data-prov')||'rule34'; settings.provider = p; saveLS(LS.settings, settings); applyProvDD(); closeProvMenu(); try{ window.dispatchEvent(new CustomEvent('app:provider-changed')); }catch{} }));
+      provMenu?.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ const p = it.getAttribute('data-prov')||'rule34'; settings.provider = p; saveLS(LS.settings, settings); applyProvDD(); closeProvMenu(); try{ window.dispatchEvent(new CustomEvent('app:provider-changed')); }catch{} }));
 
-    // Proxy test with spinner + subtle outline
-    const testProxy = debounce(async ()=>{
-      const val = (prox?.value||'').trim();
-      if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{} return; }
-      // Persist proxy and announce change immediately so requests start using it without waiting for test
-      settings.corsProxy = val; saveLS(LS.settings, settings);
-      try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
-      proxyWrap?.classList.add('testing'); prox?.classList.remove('ok','err');
-      try{
-        // RealBooru HTML endpoint requires proxy; this verifies the proxy format works
-        await fetchText('https://realbooru.com/index.php?page=autocomplete&term=mi', /*allowProxy*/ true);
-        proxyWrap?.classList.remove('testing'); prox?.classList.add('ok');
-        // Successful test already announced; nothing further needed
-      }catch{ proxyWrap?.classList.remove('testing'); prox?.classList.add('err'); }
-    }, 600);
-    prox?.addEventListener('input', testProxy);
-    prox?.addEventListener('change', testProxy);
-    proxyImages?.addEventListener('change', (e)=>{ settings.proxyImages = !!e.target.checked; saveLS(LS.settings, settings); });
+      // Proxy test with spinner + subtle outline
+      const testProxy = debounce(async ()=>{
+        const val = (prox?.value||'').trim();
+        if (!val) { settings.corsProxy = ''; saveLS(LS.settings, settings); proxyWrap?.classList.remove('testing'); prox?.classList.remove('ok','err'); try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{} return; }
+        // Persist proxy and announce change immediately so requests start using it without waiting for test
+        settings.corsProxy = val; saveLS(LS.settings, settings);
+        try{ window.dispatchEvent(new CustomEvent('app:proxy-changed')); }catch{}
+        proxyWrap?.classList.add('testing'); prox?.classList.remove('ok','err');
+        try{
+          // RealBooru HTML endpoint requires proxy; this verifies the proxy format works
+          await fetchText('https://realbooru.com/index.php?page=autocomplete&term=mi', /*allowProxy*/ true);
+          proxyWrap?.classList.remove('testing'); prox?.classList.add('ok');
+          // Successful test already announced; nothing further needed
+        }catch{ proxyWrap?.classList.remove('testing'); prox?.classList.add('err'); }
+      }, 600);
+      prox?.addEventListener('input', testProxy);
+      prox?.addEventListener('change', testProxy);
+      proxyImages?.addEventListener('change', (e)=>{ settings.proxyImages = !!e.target.checked; saveLS(LS.settings, settings); });
 
       // Auto-test initial proxy value
       if ((prox?.value||'').trim()) { proxyWrap?.classList.add('testing'); testProxy(); }
@@ -187,16 +97,48 @@ export function renderSettings(){
   $('#opt-accent').value = settings.accent || '#7c3aed';
   $('#opt-accent').addEventListener('input', (e)=>{ settings.accent = e.target.value; saveLS(LS.settings, settings); applyTheme(); });
 
-  // Appearance: auto-hide topbar on scroll
+  const tuning = $('#opt-suggest-tuning');
+  const tuningVal = $('#opt-suggest-tuning-val');
+  if (tuning){
+    tuning.value = String(settings.suggestTuning ?? 65);
+    if (tuningVal) tuningVal.textContent = tuning.value;
+    tuning.addEventListener('input', (e) => {
+      settings.suggestTuning = Number(e.target.value);
+      saveLS(LS.settings, settings);
+      if (tuningVal) tuningVal.textContent = String(settings.suggestTuning);
+      refreshSuggested();
+    });
+  }
+
+  // Appearance: sticky + auto-hide topbar on scroll
+  const stickyEl = $('#opt-sticky-topbar');
   const autoHideEl = $('#opt-auto-hide-topbar');
+  const syncAutoHideState = () => {
+    if (!autoHideEl) return;
+    const stickyOn = settings.stickyTopbar !== false;
+    autoHideEl.disabled = !stickyOn;
+    const wrapper = autoHideEl.closest('.switch');
+    if (wrapper) wrapper.classList.toggle('is-disabled', !stickyOn);
+  };
+  if (stickyEl){
+    stickyEl.checked = settings.stickyTopbar !== false;
+    stickyEl.addEventListener('change', (e) => {
+      settings.stickyTopbar = !!e.target.checked;
+      saveLS(LS.settings, settings);
+      syncAutoHideState();
+      applyTopbarPref();
+    });
+  }
   if (autoHideEl){
     autoHideEl.checked = settings.autoHideTopbar !== false;
     autoHideEl.addEventListener('change', (e) => {
+      if (autoHideEl.disabled) return;
       settings.autoHideTopbar = !!e.target.checked;
       saveLS(LS.settings, settings);
       applyTopbarPref();
     });
   }
+  syncAutoHideState();
 
   // Filters
   $('#f-ai').checked = !!filters.excludeAI;
@@ -236,14 +178,10 @@ export function renderSettings(){
     renderCustom();
   });
 
-  // Groups
-  const groupsWrap = $('#groups');
-  const renderGroups = () => {
-    groupsWrap.innerHTML = '';
-    for (const g of groups){ groupsWrap.appendChild(groupEditor(g)); }
-  };
-  renderGroups();
-  $('#group-add').addEventListener('click', () => { groups.push({ id: uid(), name: 'New group', provider: settings.provider||'rule34', include: [], exclude: [] }); saveLS(LS.groups, groups); renderGroups(); });
+  // Feeds manager link
+  const feedsManage = $('#feeds-manage');
+  if (feedsManage){ feedsManage.addEventListener('click', () => openFeedsManager()); }
+  updateFeedsSummary();
 
   // Data
   $('#data-copy').addEventListener('click', onCopy);
@@ -254,7 +192,7 @@ export function renderSettings(){
 
   // Version footer
   try{
-    const root = els.settingsContainer.querySelector('.settings');
+    const root = els.settingsPage.querySelector('.settings-main');
     if (root){
       const ver = document.createElement('div');
       ver.className = 'note';
@@ -308,99 +246,71 @@ export function renderSettings(){
   }catch{}
 }
 
-function groupEditor(g){
-  const tpl = $('#tpl-group');
-  const node = tpl.content.cloneNode(true);
-  const root = node.firstElementChild;
-  const name = $('.group-name', root);
-  const del = $('.group-del', root);
-  const chips = $('.chips', root);
-  const search = $('.group-search', root);
-  const addBtn = $('.group-add-tag', root);
-  const ac = $('.autocomplete', root);
-
-  // Default provider for legacy groups
-  if (!g.provider) { g.provider = 'rule34'; saveLS(LS.groups, groups); }
-
-  // Provider icon dropdown inline with the group search input
+function setupSettingsNav(){
   try{
-    const searchbox = $('.searchbox.small', root);
-    if (searchbox && search){
-      const btn = document.createElement('button');
-      btn.className = 'provider-btn'; btn.title = 'Change provider'; btn.setAttribute('aria-label','Change provider');
-      const img = document.createElement('img'); img.alt = '';
-      btn.appendChild(img);
-      const menu = document.createElement('div');
-      menu.className = 'provider-menu'; menu.hidden = true;
-      menu.innerHTML = `
-        <button class="item" data-prov="rule34"><img src="icons/Rule34.png" alt="" /><span>Rule34</span></button>
-        <button class="item" data-prov="realbooru"><img src="icons/RealBooru.png" alt="" /><span>RealBooru</span></button>
-      `;
-      const setIcon = () => { img.src = (g.provider==='realbooru') ? 'icons/RealBooru.png' : 'icons/Rule34.png'; };
-      setIcon();
-      // Insert before the input
-      searchbox.insertBefore(btn, search);
-      searchbox.insertBefore(menu, search);
-      // Match button size to input height
-      const syncSize = () => { const h = search.offsetHeight || 32; btn.style.width = h+'px'; btn.style.height = h+'px'; };
-      syncSize();
-      window.addEventListener('resize', syncSize);
-      // interactions
-      btn.addEventListener('click', (e)=>{ e.stopPropagation(); menu.hidden = !menu.hidden; if (!menu.hidden){ const onDoc=(ev)=>{ if (!menu.contains(ev.target) && ev.target!==btn){ menu.hidden = true; document.removeEventListener('click', onDoc); } }; setTimeout(()=>document.addEventListener('click', onDoc),0); } });
-      menu.querySelectorAll('.item').forEach(it => it.addEventListener('click', ()=>{ g.provider = it.getAttribute('data-prov')||'rule34'; saveLS(LS.groups, groups); setIcon(); menu.hidden = true; }));
+    const page = els?.settingsPage;
+    if (!page) return;
+    if (page._settingsNavCleanup){
+      try{ page._settingsNavCleanup(); }catch{}
+      page._settingsNavCleanup = null;
     }
+    const navItems = Array.from(page.querySelectorAll('.settings-nav .nav-item'));
+    if (!navItems.length) return;
+    const sections = navItems.map(btn => {
+      const id = btn.getAttribute('data-target') || '';
+      return { id, btn, section: id ? page.querySelector('#' + id) : null };
+    }).filter(entry => !!entry.section && !!entry.id);
+    if (!sections.length) return;
+    const setActive = (id) => {
+      if (!id) return;
+      navItems.forEach(b => b.classList.toggle('active', (b.getAttribute('data-target') || '') === id));
+    };
+    navItems.forEach(btn => btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-target') || '';
+      const section = page.querySelector('#' + id);
+      setActive(id);
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    let raf = 0;
+    const getTopOffset = () => {
+      let h = 0;
+      try{
+        const css = getComputedStyle(document.documentElement).getPropertyValue('--topbar-h');
+        h = parseFloat(css) || 0;
+      }catch{}
+      return h + 96;
+    };
+    const updateActive = () => {
+      if (page.hidden) return;
+      const offset = getTopOffset();
+      let best = sections[0];
+      let bestTop = -Infinity;
+      sections.forEach(({ id, section }) => {
+        const top = section.getBoundingClientRect().top - offset;
+        if (top <= 0 && top > bestTop){
+          bestTop = top;
+          best = { id, section };
+        }
+      });
+      if (best?.id) setActive(best.id);
+    };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; updateActive(); });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    page._settingsNavCleanup = () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+    updateActive();
   }catch{}
-
-  name.value = g.name || '';
-  name.addEventListener('input', ()=>{ g.name = name.value; saveLS(LS.groups, groups); });
-  del.addEventListener('click', ()=>{
-    const idx = groups.findIndex(x => x.id === g.id);
-    if (idx >= 0) { groups.splice(idx, 1); saveLS(LS.groups, groups); renderSettings(); }
-  });
-
-  const render = () => renderChipsFix(chips, g.include||[], g.exclude||[], {
-    onToggle: (tag, wasEx) => {
-      if (wasEx){ g.exclude = (g.exclude||[]).filter(x=>x!==tag); if (!g.include.includes(tag)) g.include.push(tag); }
-      else { g.include = (g.include||[]).filter(x=>x!==tag); if (!g.exclude.includes(tag)) g.exclude.push(tag); }
-      saveLS(LS.groups, groups); render();
-    },
-    onRemove: (tag, wasEx) => {
-      if (wasEx) g.exclude = (g.exclude||[]).filter(x=>x!==tag);
-      else g.include = (g.include||[]).filter(x=>x!==tag);
-      saveLS(LS.groups, groups); render();
-    }
-  });
-  render();
-
-  const toggle = $('.group-toggle', root);
-  const summary = $('.group-summary', root);
-  if (typeof g.collapsed !== 'boolean') g.collapsed = true;
-  const applyCollapsed = () => {
-    root.classList.toggle('collapsed', !!g.collapsed);
-    if (toggle) toggle.setAttribute('aria-expanded', (!g.collapsed).toString());
-    const inc = (g.include||[]).slice(0,6);
-    const exc = (g.exclude||[]).slice(0,6);
-    const incStr = inc.join(', ');
-    const excStr = exc.map(t=>'-'+t).join(', ');
-    if (summary) summary.innerHTML = (inc.length||exc.length) ? `${escapeHtml(incStr)}${(inc.length&&exc.length)?', ':''}${escapeHtml(excStr)}` : '<span class="note">No tags</span>';
-  };
-  applyCollapsed();
-  if (toggle) toggle.addEventListener('click', () => { g.collapsed = !g.collapsed; saveLS(LS.groups, groups); applyCollapsed(); });
-
-  addBtn.addEventListener('click', ()=>{ const t = normalizeTag(search.value); if (t){ (t.startsWith('-') ? (g.exclude||(g.exclude=[])).push(t.slice(1)) : (g.include||(g.include=[])).push(t)); saveLS(LS.groups, groups); search.value=''; render(); }});
-  search.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); addBtn.click(); }});
-  search.addEventListener('input', debounce(async ()=>{
-    const q = search.value.trim(); if(!q){ ac.hidden = true; return; }
-    try{ const items = await API.autocomplete(q, g.provider || 'rule34'); ac.innerHTML = (items||[]).slice(0,10).map(i=>`<div class="item" data-v="${escapeHtml(i.value)}">${escapeHtml(i.value)}</div>`).join(''); ac.hidden = false; ac.querySelectorAll('.item').forEach(it=>it.addEventListener('click', ()=>{ search.value=it.dataset.v; addBtn.click(); ac.hidden = true; })); }
-    catch{ ac.hidden = true; }
-  }, 150));
-
-  return root;
 }
 
 function onCopy(){
   try {
-    const data = { settings, groups, favorites, filters, v: 1 };
+    const data = { settings, groups, favorites, filters, savedSearches, recentTags, v: 1 };
     const json = JSON.stringify(data, null, 2);
     const msg = document.querySelector('#data-msg');
 
@@ -421,7 +331,7 @@ function onCopy(){
 }
 
 function onExport(){
-  const data = { settings, groups, favorites, filters, v: 1 };
+  const data = { settings, groups, favorites, filters, savedSearches, recentTags, v: 1 };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -438,6 +348,9 @@ function onImport(e){
       if (Array.isArray(data.groups)) { setGroups(data.groups); }
       if (data.favorites) { setFavorites(data.favorites); }
       if (data.filters) { setFilters({ ...DEFAULTS.filters, ...data.filters }); }
+      if (Array.isArray(data.savedSearches)) { setSavedSearches(data.savedSearches); }
+      if (Array.isArray(data.recentTags)) { setRecentTags(data.recentTags); }
+      try{ window.dispatchEvent(new CustomEvent('app:search-state-changed')); }catch{}
       alert('Import complete.');
       renderSettings();
     }catch(err){ alert('Import failed: ' + (err?.message||'')); }
@@ -450,6 +363,7 @@ function onReset(){
   resetAllData();
   alert('Data reset.');
   renderSettings();
+  try{ window.dispatchEvent(new CustomEvent('app:search-state-changed')); }catch{}
 }
 
 async function renderAnalytics(){
@@ -569,5 +483,3 @@ function favoritesPerMonth(posts, month){
   let c = 0; for (const p of posts){ const m = parseMonth(p.created_at || p.change || ''); if (m===month) c++; }
   return c;
 }
-
-

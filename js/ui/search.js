@@ -1,11 +1,13 @@
-import { $, $$, debounce, escapeHtml } from '../core/utils.js?v=20251007';
+import { $, debounce, escapeHtml, uid } from '../core/utils.js?v=20251007';
 import { API } from '../core/api.js?v=20251007';
-import { settings, session } from '../core/state.js?v=20251007';
+import { settings, session, savedSearches, recentTags, setSavedSearches, setRecentTags } from '../core/state.js?v=20251007';
 
 export const searchState = { include: [], exclude: [], sort: 'default', minScore: 0 };
 
 let els;
 let onPerformSearchCb = () => {};
+const MAX_RECENT = 18;
+const ADV_KEY = 'r34:search-advanced-open';
 
 export function initSearch(domRefs, { onPerformSearch } = {}){
   els = domRefs; onPerformSearchCb = onPerformSearch || (()=>{});
@@ -69,6 +71,44 @@ export function initSearch(domRefs, { onPerformSearch } = {}){
     }
   }catch{}
 
+  // Advanced drawer
+  try{
+    const adv = $('#search-advanced');
+    const advToggle = $('#search-advanced-toggle');
+    const pref = localStorage.getItem(ADV_KEY);
+    const open = pref ? (pref === 'true') : false;
+    if (adv) adv.hidden = !open;
+    if (advToggle) advToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    advToggle?.addEventListener('click', () => {
+      const isOpen = adv?.hidden === false;
+      if (adv) adv.hidden = isOpen;
+      advToggle?.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      try{ localStorage.setItem(ADV_KEY, isOpen ? 'false' : 'true'); }catch{}
+    });
+  }catch{}
+
+  // Saved searches
+  try{
+    const saveBtn = $('#search-save');
+    saveBtn?.addEventListener('click', () => saveCurrentSearch());
+    renderSavedSearches();
+  }catch{}
+
+  // Recent tags
+  try{
+    renderRecentTags();
+    const clearBtn = $('#recent-clear');
+    clearBtn?.addEventListener('click', () => { setRecentTags([]); renderRecentTags(); });
+  }catch{}
+
+  // External updates (import/reset)
+  try{
+    window.addEventListener('app:search-state-changed', () => {
+      renderSavedSearches();
+      renderRecentTags();
+    });
+  }catch{}
+
   updateSearchChips();
 }
 
@@ -84,8 +124,10 @@ export function addSearchTag(raw){
   if (t.startsWith('-')) {
     const tag = t.slice(1);
     if (!searchState.exclude.includes(tag)) searchState.exclude.push(tag);
+    addRecentTag(tag);
   } else {
     if (!searchState.include.includes(t)) searchState.include.push(t);
+    addRecentTag(t);
   }
   updateSearchChips();
 }
@@ -109,6 +151,107 @@ export function updateSearchChips(){
   renderChipsFix(els.tagChips, searchState.include, searchState.exclude, {
     onToggle: toggleSearchTag,
     onRemove: removeSearchTag,
+  });
+  renderSavedSearches();
+}
+
+function addRecentTag(tag){
+  if (!tag) return;
+  const list = Array.isArray(recentTags) ? recentTags.slice() : [];
+  const next = tag.toLowerCase();
+  const without = list.filter(t => t !== next);
+  without.unshift(next);
+  const trimmed = without.slice(0, MAX_RECENT);
+  setRecentTags(trimmed);
+  renderRecentTags();
+}
+
+function renderRecentTags(){
+  const root = $('#recent-tags');
+  if (!root) return;
+  const list = Array.isArray(recentTags) ? recentTags : [];
+  if (!list.length){
+    root.innerHTML = '<span class="note">No recent tags yet.</span>';
+    return;
+  }
+  root.innerHTML = list.map(t => `<button class="chip recent-chip" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('');
+  root.querySelectorAll('.recent-chip').forEach(btn => btn.addEventListener('click', () => {
+    addSearchTag(btn.getAttribute('data-tag') || '');
+  }));
+}
+
+function saveCurrentSearch(){
+  const inc = Array.isArray(searchState.include) ? searchState.include : [];
+  const exc = Array.isArray(searchState.exclude) ? searchState.exclude : [];
+  if (!inc.length && !exc.length) return;
+  const defaultName = inc.slice(0, 3).join(', ') || exc.slice(0, 2).map(t => '-' + t).join(', ');
+  const name = String(prompt('Name this search', defaultName) || '').trim();
+  if (!name) return;
+  const entry = {
+    id: uid(),
+    name,
+    include: inc.slice(),
+    exclude: exc.slice(),
+    sort: searchState.sort || 'default',
+    minScore: Number(searchState.minScore || 0),
+    createdAt: Date.now(),
+  };
+  const next = Array.isArray(savedSearches) ? savedSearches.slice() : [];
+  next.unshift(entry);
+  setSavedSearches(next);
+  renderSavedSearches();
+}
+
+function applySavedSearch(s){
+  searchState.include = Array.isArray(s.include) ? s.include.slice() : [];
+  searchState.exclude = Array.isArray(s.exclude) ? s.exclude.slice() : [];
+  searchState.sort = s.sort || 'default';
+  searchState.minScore = Number(s.minScore || 0);
+  try{
+    const sortSel = $('#search-sort');
+    const minScoreInp = $('#search-min-score');
+    if (sortSel) sortSel.value = searchState.sort;
+    if (minScoreInp) minScoreInp.value = searchState.minScore ? String(searchState.minScore) : '';
+  }catch{}
+  updateSearchChips();
+  performSearch();
+}
+
+function renderSavedSearches(){
+  const root = $('#saved-searches');
+  if (!root) return;
+  let list = Array.isArray(savedSearches) ? savedSearches : [];
+  let changed = false;
+  list = list.map(s => {
+    if (s && !s.id){ changed = true; return { ...s, id: uid() }; }
+    return s;
+  });
+  if (changed) setSavedSearches(list);
+  if (!list.length){
+    root.innerHTML = '<span class="note">No saved searches yet.</span>';
+    return;
+  }
+  root.innerHTML = list.map(s => {
+    const inc = (s.include || []).slice(0, 4).join(', ');
+    const exc = (s.exclude || []).slice(0, 2).map(t => '-' + t).join(', ');
+    const summary = [inc, exc].filter(Boolean).join(' ');
+    return `
+      <div class="saved-item" data-id="${escapeHtml(s.id)}">
+        <button class="saved-run" type="button" title="${escapeHtml(summary)}">${escapeHtml(s.name || 'Saved search')}</button>
+        <button class="saved-del" type="button" title="Remove">Delete</button>
+      </div>`;
+  }).join('');
+  root.querySelectorAll('.saved-item').forEach(row => {
+    const id = row.getAttribute('data-id');
+    const run = row.querySelector('.saved-run');
+    const del = row.querySelector('.saved-del');
+    const item = (savedSearches || []).find(s => s.id === id);
+    run?.addEventListener('click', () => { if (item) applySavedSearch(item); });
+    del?.addEventListener('click', () => {
+      const next = (savedSearches || []).filter(s => s.id !== id);
+      setSavedSearches(next);
+      renderSavedSearches();
+    });
   });
 }
 
@@ -271,4 +414,3 @@ async function applyTagClass(el, rawTag){
   el.classList.remove('tag-general','tag-artist','tag-character','tag-copyright','tag-meta');
   el.classList.add(classForType(type));
 }
-

@@ -179,7 +179,8 @@ export const API = {
     u.searchParams.set('name',name);
     if (settings.apiUserId) u.searchParams.set('user_id', settings.apiUserId);
     if (settings.apiKey) u.searchParams.set('api_key', settings.apiKey);
-    const xml = await fetchText(u.toString(), /*allowProxy*/ false);
+    const allowProxy = !!String(settings?.corsProxy || '').trim();
+    const xml = await fetchText(u.toString(), /*allowProxy*/ allowProxy);
     return parseTagXML(xml);
   }
 };
